@@ -1,0 +1,3 @@
+clients=32 duration=10s read-ratio=0.90
+ops=53281 errors=0 throughput=5328 ops/s
+latency p50=5.486521ms p95=11.052374ms p99=14.532444ms max=31.745423ms

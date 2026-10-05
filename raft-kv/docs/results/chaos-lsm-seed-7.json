@@ -1,0 +1,19 @@
+{
+  "store": "lsm",
+  "seed": 7,
+  "duration_s": 40.846975645,
+  "ops": 65170,
+  "ok": 65170,
+  "unknown_outcome": 0,
+  "sigkills": 10,
+  "leader_sigkills": 6,
+  "pauses": 3,
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    38856,
+    38856,
+    38856
+  ],
+  "checker_s": 0.179282191
+}

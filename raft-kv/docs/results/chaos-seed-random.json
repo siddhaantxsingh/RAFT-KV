@@ -1,0 +1,18 @@
+{
+  "seed": 1791156001069345049,
+  "duration_s": 41.029475648,
+  "ops": 76586,
+  "ok": 76586,
+  "unknown_outcome": 0,
+  "sigkills": 8,
+  "leader_sigkills": 5,
+  "pauses": 4,
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    45783,
+    45783,
+    45783
+  ],
+  "checker_s": 0.246982064
+}

@@ -1,0 +1,25 @@
+# Three-replica cluster. Try:  docker compose up -d
+#   docker compose exec n0 kvctl -s http://n0:7000,http://n1:7000,http://n2:7000 put hello world
+#   docker compose stop n1     # kill a replica; the cluster keeps serving
+x-node: &node
+  build: .
+  restart: unless-stopped
+  environment:
+    KV_SERVERS: http://n0:7000,http://n1:7000,http://n2:7000
+services:
+  n0:
+    <<: *node
+    command: ["-id", "0", "-peers", "http://n0:7000,http://n1:7000,http://n2:7000"]
+    ports: ["7000:7000"]
+    volumes: ["n0:/data"]
+  n1:
+    <<: *node
+    command: ["-id", "1", "-peers", "http://n0:7000,http://n1:7000,http://n2:7000"]
+    ports: ["7001:7000"]
+    volumes: ["n1:/data"]
+  n2:
+    <<: *node
+    command: ["-id", "2", "-peers", "http://n0:7000,http://n1:7000,http://n2:7000"]
+    ports: ["7002:7000"]
+    volumes: ["n2:/data"]
+volumes: { n0: {}, n1: {}, n2: {} }
