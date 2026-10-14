@@ -1,0 +1,10 @@
+    diskfault_test.go:199: Append succeeded after an earlier fsync failure
+--- FAIL: TestDiskFaultFsyncFailureIsStickyAndReported (0.01s)
+    diskfault_test.go:223: Append succeeded after a short write left a partial record
+--- FAIL: TestDiskFaultShortWriteIsStickyAndRecoverable (0.03s)
+--- PASS: TestDiskFaultRaftFailStopOnFsyncError (0.03s)
+    diskfault_test.go:353: seed 79 mode 1: entry 16 differs: got {Term:1 Index:50 Command:[99 109 100 45 53 48 45 49] Type:0}
+--- FAIL: TestDiskFaultCrashConsistency (3.61s)
+FAIL
+FAIL	github.com/siddhaantxsingh/raft-kv/raft	3.700s
+FAIL
