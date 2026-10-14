@@ -1,0 +1,19 @@
+{
+  "store": "memory",
+  "seed": 1,
+  "duration_s": 31.135053641,
+  "ops": 17915,
+  "ok": 17891,
+  "unknown_outcome": 24,
+  "sigkills": 6,
+  "leader_sigkills": 1,
+  "pauses": 4,
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    10852,
+    10852,
+    10852
+  ],
+  "checker_s": 0.045718192
+}

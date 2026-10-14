@@ -1,0 +1,5 @@
+[M7] learners campaign
+   tests=Membership -> SURVIVED []
+[M8] InstallSnapshot drops the configuration
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipChurnUnderPartitions (15.35s)', '--- FAIL: TestMembershipLearnerJoinsFromSnapshot (12.36s)']
+Note: M7 survives because runElection and collectVotes also refuse to campaign when the node is not a voter (second guard); the mutant is equivalent.

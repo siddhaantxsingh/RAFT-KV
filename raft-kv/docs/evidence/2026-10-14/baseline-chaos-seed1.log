@@ -1,0 +1,31 @@
+ 18:13:27 up 8 min,  0 user,  load average: 7.78, 3.77, 1.44
+chaos: SIGKILL replica 2 (leader-targeted=true)
+chaos: pausing replica 1
+chaos: pausing replica 2
+chaos: SIGKILL replica 0 (leader-targeted=false)
+chaos: pausing replica 0
+chaos: pausing replica 2
+chaos: SIGKILL replica 0 (leader-targeted=false)
+chaos: SIGKILL replica 1 (leader-targeted=false)
+chaos: SIGKILL replica 0 (leader-targeted=false)
+chaos: SIGKILL replica 1 (leader-targeted=false)
+{
+  "store": "memory",
+  "seed": 1,
+  "duration_s": 31.135053641,
+  "ops": 17915,
+  "ok": 17891,
+  "unknown_outcome": 24,
+  "sigkills": 6,
+  "leader_sigkills": 1,
+  "pauses": 4,
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    10852,
+    10852,
+    10852
+  ],
+  "checker_s": 0.045718192
+}
+CHAOS PASS

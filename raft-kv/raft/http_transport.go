@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/siddhaantxsingh/raft-kv/secure"
@@ -14,9 +15,38 @@ import (
 
 // HTTPTransport sends Raft RPCs as gob-encoded HTTP POSTs. Peers are
 // addressed by index into Addrs (e.g. "http://10.0.0.2:7001").
+//
+// Addresses of servers added by membership changes arrive through
+// SetPeerAddrs (raft.AddressBook) and override Addrs.
 type HTTPTransport struct {
 	Addrs  []string
 	Client *http.Client
+
+	mu    sync.RWMutex
+	extra map[int]string
+}
+
+// PeerAddr returns the URL for peer id ("" if unknown).
+func (t *HTTPTransport) PeerAddr(id int) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if a, ok := t.extra[id]; ok {
+		return a
+	}
+	if id >= 0 && id < len(t.Addrs) {
+		return t.Addrs[id]
+	}
+	return ""
+}
+
+// SetPeerAddrs records the addresses from the latest configuration.
+func (t *HTTPTransport) SetPeerAddrs(addrs map[int]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.extra = make(map[int]string, len(addrs))
+	for id, a := range addrs {
+		t.extra[id] = a
+	}
 }
 
 func NewHTTPTransport(addrs []string) *HTTPTransport {
@@ -43,7 +73,11 @@ func (t *HTTPTransport) call(ctx context.Context, peer int, path string, args, r
 	if err := gob.NewEncoder(&buf).Encode(args); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.Addrs[peer]+path, &buf)
+	addr := t.PeerAddr(peer)
+	if addr == "" {
+		return fmt.Errorf("raft rpc %s: no address for peer %d", path, peer)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr+path, &buf)
 	if err != nil {
 		return err
 	}

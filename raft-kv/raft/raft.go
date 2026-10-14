@@ -28,7 +28,13 @@ type Config struct {
 	SnapshotChunkSize int
 	// MaxSnapshotSize bounds the snapshot a follower will buffer.
 	MaxSnapshotSize int64
-	Logger          *log.Logger
+	// Join starts a server that is not part of the bootstrap
+	// configuration: it has no voters until the leader sends it the log
+	// (or a snapshot) containing a configuration that includes it. Use it
+	// for servers added with AddServer. Ignored once the log or snapshot
+	// holds a configuration.
+	Join   bool
+	Logger *log.Logger
 }
 
 func DefaultConfig() Config {
@@ -54,7 +60,6 @@ type Transport interface {
 type Raft struct {
 	mu        sync.Mutex
 	me        int
-	peers     int
 	transport Transport
 	storage   Storage
 	applyCh   chan<- ApplyMsg
@@ -73,14 +78,22 @@ type Raft struct {
 	lastApplied int
 	leaderID    int
 
-	// Leader-only volatile state.
-	nextIndex  []int
-	matchIndex []int
+	// Membership (membership.go). conf is the latest configuration in the
+	// log (committed or not), set by the entry at confIndex; snapConf is
+	// the configuration covered by the snapshot (log[0]).
+	conf      Configuration
+	confIndex int
+	snapConf  Configuration
+
+	// Leader-only volatile state, keyed by server ID. matchIndex[me] is
+	// our own durable index.
+	nextIndex  map[int]int
+	matchIndex map[int]int
+	peerState  map[int]*peer // one replicator per other member
 
 	electionDeadline time.Time
 	lastHeartbeat    time.Time // last time we heard from a valid leader
 	applyCond        *sync.Cond
-	replicateCond    []*sync.Cond
 
 	// A snapshot waiting to be handed to the service by the applier.
 	pendingSnapshot *ApplyMsg
@@ -97,8 +110,8 @@ type Raft struct {
 
 	// Leader: per-peer resume offset for the snapshot being sent, keyed by
 	// the snapshot index it belongs to.
-	snapSendIndex  []int
-	snapSendOffset []int64
+	snapSendIndex  map[int]int
+	snapSendOffset map[int]int64
 	snapCRCIndex   int // snapshot index snapCRC was computed for
 	snapCRC        uint32
 
@@ -108,10 +121,19 @@ type Raft struct {
 	stats Metrics
 }
 
+// peer is the replicator state for one other member.
+type peer struct {
+	cond    *sync.Cond
+	stopped bool // removed from the configuration; the replicator exits
+}
+
+func newCond(mu *sync.Mutex) *sync.Cond { return sync.NewCond(mu) }
+
 type snapshotRecv struct {
 	term, index, lastTerm int
 	total                 int64
 	checksum              uint32
+	conf                  *Configuration
 	buf                   []byte
 }
 
@@ -125,12 +147,14 @@ type Metrics struct {
 	LeaderTerms           int64 // times this node became leader
 }
 
-// New creates a Raft peer. It restores persisted state, then starts the
-// ticker, applier and per-peer replicator goroutines.
+// New creates a Raft peer. peers is the size of the bootstrap
+// configuration (voters 0..peers-1); it is used only until the log or
+// snapshot holds a configuration entry, and ignored with cfg.Join. New
+// restores persisted state, then starts the ticker, applier and per-peer
+// replicator goroutines.
 func New(me, peers int, transport Transport, storage Storage, applyCh chan<- ApplyMsg, cfg Config) *Raft {
 	rf := &Raft{
 		me:        me,
-		peers:     peers,
 		transport: transport,
 		storage:   storage,
 		applyCh:   applyCh,
@@ -142,11 +166,11 @@ func New(me, peers int, transport Transport, storage Storage, applyCh chan<- App
 	rf.applyCond = sync.NewCond(&rf.mu)
 	rf.syncCond = sync.NewCond(&rf.mu)
 	rf.readCond = sync.NewCond(&rf.mu)
-	rf.nextIndex = make([]int, peers)
-	rf.matchIndex = make([]int, peers)
-	rf.replicateCond = make([]*sync.Cond, peers)
-	rf.snapSendIndex = make([]int, peers)
-	rf.snapSendOffset = make([]int64, peers)
+	rf.nextIndex = map[int]int{}
+	rf.matchIndex = map[int]int{}
+	rf.peerState = map[int]*peer{}
+	rf.snapSendIndex = map[int]int{}
+	rf.snapSendOffset = map[int]int64{}
 	if rf.cfg.SnapshotChunkSize <= 0 {
 		rf.cfg.SnapshotChunkSize = 1 << 20
 	}
@@ -154,18 +178,20 @@ func New(me, peers int, transport Transport, storage Storage, applyCh chan<- App
 		rf.cfg.MaxSnapshotSize = 4 << 30
 	}
 
-	rf.load()
+	snapConf := rf.load()
+	switch {
+	case snapConf != nil:
+		rf.snapConf = *snapConf
+	case !cfg.Join:
+		rf.snapConf = rf.bootstrapConfig(peers)
+	}
 	rf.commitIndex = rf.firstIndex()
 	rf.lastApplied = rf.firstIndex()
 	rf.resetElectionTimer()
 
-	for i := 0; i < peers; i++ {
-		if i == me {
-			continue
-		}
-		rf.replicateCond[i] = sync.NewCond(&rf.mu)
-		go rf.replicator(i)
-	}
+	rf.mu.Lock()
+	rf.recomputeConfig() // starts a replicator per member
+	rf.mu.Unlock()
 	go rf.ticker()
 	go rf.applier()
 	go rf.syncer()
@@ -189,7 +215,9 @@ func (rf *Raft) entry(index int) LogEntry { return rf.log[index-rf.firstIndex()]
 
 // ---------------------------------------------------------------- persistence
 
-func (rf *Raft) load() {
+// load restores persisted state and returns the snapshot's configuration
+// (nil if there is no snapshot or it predates membership changes).
+func (rf *Raft) load() *Configuration {
 	hs, snapIndex, snapTerm, entries, err := rf.storage.Load()
 	if err != nil {
 		panic("raft: load: " + err.Error())
@@ -197,6 +225,8 @@ func (rf *Raft) load() {
 	rf.currentTerm, rf.votedFor = hs.Term, hs.VotedFor
 	rf.log = append([]LogEntry{{Term: snapTerm, Index: snapIndex}}, entries...)
 	rf.durableIndex = rf.lastIndex()
+	_, _, _, conf := rf.storage.SnapshotWithConfig()
+	return conf
 }
 
 // must panics on storage errors: continuing after a failed write could
@@ -317,9 +347,10 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		return
 	}
 	term := rf.entry(index).Term
+	conf := rf.configAt(index)
 	rf.mu.Unlock()
 
-	must(rf.storage.SaveSnapshot(index, term, snapshot))
+	must(rf.storage.SaveSnapshot(index, term, snapshot, &conf))
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -328,6 +359,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	}
 	// Committed entries are never truncated, so index is still in the log
 	// with the same term.
+	rf.snapConf = conf
 	rf.trimLogTo(index, term)
 	must(rf.storage.CompactLog(index, rf.log[1:]))
 	rf.logf("snapshot through index %d", index)
@@ -355,10 +387,8 @@ func (rf *Raft) Kill() {
 	rf.applyCond.Broadcast()
 	rf.syncCond.Broadcast()
 	rf.readCond.Broadcast()
-	for _, c := range rf.replicateCond {
-		if c != nil {
-			c.Broadcast()
-		}
+	for _, p := range rf.peerState {
+		p.cond.Broadcast()
 	}
 	rf.mu.Unlock()
 }
@@ -389,9 +419,9 @@ func (rf *Raft) becomeLeader() {
 	rf.role = Leader
 	rf.stats.LeaderTerms++
 	rf.leaderID = rf.me
-	for i := range rf.nextIndex {
-		rf.nextIndex[i] = rf.lastIndex() + 1
-		rf.matchIndex[i] = 0
+	for id := range rf.peerState {
+		rf.nextIndex[id] = rf.lastIndex() + 1
+		rf.matchIndex[id] = 0
 	}
 	rf.matchIndex[rf.me] = rf.durableIndex
 	rf.logf("became leader for term %d (log %d..%d)", rf.currentTerm, rf.firstIndex(), rf.lastIndex())
@@ -413,7 +443,10 @@ func (rf *Raft) ticker() {
 		}
 		if time.Now().After(rf.electionDeadline) {
 			rf.resetElectionTimer()
-			go rf.runElection()
+			// Learners and removed servers never campaign.
+			if rf.conf.IsVoter(rf.me) {
+				go rf.runElection()
+			}
 		}
 		rf.mu.Unlock()
 	}
@@ -441,7 +474,7 @@ func (rf *Raft) runElection() {
 		return
 	}
 	rf.mu.Lock()
-	if rf.role == Leader {
+	if rf.role == Leader || !rf.conf.IsVoter(rf.me) {
 		rf.mu.Unlock()
 		return
 	}
@@ -468,11 +501,22 @@ func (rf *Raft) collectVotes(preVote bool) bool {
 		LastLogIndex: rf.lastIndex(), LastLogTerm: rf.lastTerm(), PreVote: preVote,
 	}
 	startTerm := rf.currentTerm
+	// Votes are counted only from voters of our latest configuration.
+	conf := rf.conf.clone()
 	rf.mu.Unlock()
 
+	if !conf.IsVoter(rf.me) {
+		return false
+	}
+	var others []int
+	for _, v := range conf.Voters() {
+		if v != rf.me {
+			others = append(others, v)
+		}
+	}
 	votes := 1
-	needed := rf.peers/2 + 1
-	if votes >= needed { // single-node cluster
+	needed := conf.Quorum()
+	if votes >= needed { // single-voter cluster
 		if !preVote {
 			rf.mu.Lock()
 			if rf.role == Candidate && rf.currentTerm == startTerm {
@@ -488,11 +532,8 @@ func (rf *Raft) collectVotes(preVote bool) bool {
 		reply *RequestVoteReply
 		err   error
 	}
-	results := make(chan result, rf.peers)
-	for p := 0; p < rf.peers; p++ {
-		if p == rf.me {
-			continue
-		}
+	results := make(chan result, len(others))
+	for _, p := range others {
 		go func(p int) {
 			ctx, cancel := context.WithTimeout(context.Background(), rf.cfg.RPCTimeout)
 			defer cancel()
@@ -501,7 +542,7 @@ func (rf *Raft) collectVotes(preVote bool) bool {
 		}(p)
 	}
 
-	for i := 0; i < rf.peers-1; i++ {
+	for range others {
 		res := <-results
 		if res.err != nil {
 			continue
@@ -557,6 +598,14 @@ func (rf *Raft) HandleRequestVote(args *RequestVoteArgs) *RequestVoteReply {
 	if args.Term < rf.currentTerm {
 		return reply
 	}
+	// Thesis §4.2.3: ignore a vote request that arrives within the minimum
+	// election timeout of hearing from a current leader. Without this, a
+	// removed server that never learned of its removal could keep forcing
+	// the cluster into new terms. (Its pre-votes already fail for the same
+	// reason; this also covers servers that skip pre-vote.)
+	if rf.role == Leader || (rf.leaderID != -1 && time.Since(rf.lastHeartbeat) < rf.cfg.ElectionTimeoutMin) {
+		return reply
+	}
 	if args.Term > rf.currentTerm {
 		rf.stepDown(args.Term)
 		rf.leaderID = -1
@@ -574,10 +623,8 @@ func (rf *Raft) HandleRequestVote(args *RequestVoteArgs) *RequestVoteReply {
 // ---------------------------------------------------------------- replication
 
 func (rf *Raft) broadcastAppend() {
-	for i, c := range rf.replicateCond {
-		if i != rf.me && c != nil {
-			c.Signal()
-		}
+	for _, p := range rf.peerState {
+		p.cond.Signal()
 	}
 }
 
@@ -585,12 +632,12 @@ func (rf *Raft) broadcastAppend() {
 // signalled (new entry or heartbeat tick), then sends one AppendEntries or
 // InstallSnapshot. Batching falls out naturally: entries appended while an
 // RPC is in flight are all sent in the next one.
-func (rf *Raft) replicator(peer int) {
+func (rf *Raft) replicator(peer int, p *peer) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	for !rf.killed() {
-		rf.replicateCond[peer].Wait()
-		if rf.killed() {
+	for !rf.killed() && !p.stopped {
+		p.cond.Wait()
+		if rf.killed() || p.stopped {
 			return
 		}
 		if rf.role != Leader {
@@ -625,7 +672,7 @@ func (rf *Raft) replicateOnce(peer int) {
 	cancel()
 	rf.mu.Lock()
 
-	if err != nil || rf.currentTerm != term || rf.role != Leader {
+	if err != nil || rf.currentTerm != term || rf.role != Leader || rf.peerState[peer] == nil {
 		return
 	}
 	if reply.Term > rf.currentTerm {
@@ -641,7 +688,7 @@ func (rf *Raft) replicateOnce(peer int) {
 		rf.nextIndex[peer] = rf.matchIndex[peer] + 1
 		rf.advanceCommit()
 		if rf.nextIndex[peer] <= rf.lastIndex() {
-			rf.replicateCond[peer].Signal() // more to send; don't wait for heartbeat
+			rf.signalPeer(peer) // more to send; don't wait for heartbeat
 		}
 		return
 	}
@@ -669,7 +716,7 @@ func (rf *Raft) replicateOnce(peer int) {
 	if rf.nextIndex[peer] < 1 {
 		rf.nextIndex[peer] = 1
 	}
-	rf.replicateCond[peer].Signal()
+	rf.signalPeer(peer)
 }
 
 // sendSnapshotChunk sends the next chunk of the latest snapshot to peer.
@@ -679,7 +726,7 @@ func (rf *Raft) replicateOnce(peer int) {
 // index. Progress is kept per peer, so a failed or slow chunk is retried
 // from where it stopped instead of from the beginning.
 func (rf *Raft) sendSnapshotChunk(peer, term int) {
-	sIndex, sTerm, data := rf.storage.Snapshot()
+	sIndex, sTerm, data, sConf := rf.storage.SnapshotWithConfig()
 	if sIndex < rf.firstIndex() || len(data) == 0 && sIndex > 0 {
 		// Cannot happen: the log is only trimmed after its snapshot is saved.
 		panic(fmt.Sprintf("raft %d: snapshot %d older than log start %d", rf.me, sIndex, rf.firstIndex()))
@@ -696,7 +743,7 @@ func (rf *Raft) sendSnapshotChunk(peer, term int) {
 		Term: term, LeaderID: rf.me,
 		LastIncludedIndex: sIndex, LastIncludedTerm: sTerm,
 		Offset: off, Data: data[off:end], Done: end == int64(len(data)),
-		Total: int64(len(data)), Checksum: rf.snapCRC,
+		Total: int64(len(data)), Checksum: rf.snapCRC, Config: sConf,
 	}
 	rf.stats.SnapshotChunksSent++
 	rf.mu.Unlock()
@@ -704,7 +751,7 @@ func (rf *Raft) sendSnapshotChunk(peer, term int) {
 	reply, err := rf.transport.InstallSnapshot(ctx, peer, args)
 	cancel()
 	rf.mu.Lock()
-	if err != nil || rf.currentTerm != term || rf.role != Leader {
+	if err != nil || rf.currentTerm != term || rf.role != Leader || rf.peerState[peer] == nil {
 		return
 	}
 	if reply.Term > rf.currentTerm {
@@ -719,34 +766,45 @@ func (rf *Raft) sendSnapshotChunk(peer, term int) {
 		rf.nextIndex[peer] = rf.matchIndex[peer] + 1
 		rf.advanceCommit()
 		if rf.nextIndex[peer] <= rf.lastIndex() {
-			rf.replicateCond[peer].Signal()
+			rf.signalPeer(peer)
 		}
 		return
 	}
 	if rf.snapSendIndex[peer] == sIndex {
 		rf.snapSendOffset[peer] = min(max(reply.NextOffset, 0), int64(len(data)))
 	}
-	rf.replicateCond[peer].Signal() // next chunk without waiting for a heartbeat
+	rf.signalPeer(peer) // next chunk without waiting for a heartbeat
 }
 
-// advanceCommit finds the highest N replicated on a majority with
-// log[N].term == currentTerm (Figure 2, last bullet for leaders).
+// advanceCommit finds the highest N replicated on a majority of the
+// latest configuration's voters with log[N].term == currentTerm (Figure 2,
+// last bullet for leaders). Learners, and the leader itself once it has
+// removed itself, are not counted.
 func (rf *Raft) advanceCommit() {
+	voters := rf.conf.Voters()
+	quorum := len(voters)/2 + 1
 	for n := rf.lastIndex(); n > rf.commitIndex && n > rf.firstIndex(); n-- {
 		if rf.entry(n).Term != rf.currentTerm {
 			break // earlier entries have older terms too
 		}
 		count := 0
-		for _, m := range rf.matchIndex {
-			if m >= n {
+		for _, v := range voters {
+			if rf.matchIndex[v] >= n {
 				count++
 			}
 		}
-		if count > rf.peers/2 {
+		if count >= quorum {
 			rf.commitIndex = n
 			rf.applyCond.Broadcast()
-			return
+			break
 		}
+	}
+	rf.maybeStepDownRemoved()
+}
+
+func (rf *Raft) signalPeer(id int) {
+	if p := rf.peerState[id]; p != nil {
+		p.cond.Signal()
 	}
 }
 
@@ -792,6 +850,7 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs) *AppendEntriesReply
 
 	// Append new entries, truncating only on an actual conflict so that a
 	// stale/reordered RPC never removes entries a newer RPC already added.
+	confChanged := false
 	for i, e := range args.Entries {
 		if e.Index <= rf.lastIndex() {
 			if rf.entry(e.Index).Term == e.Term {
@@ -805,8 +864,16 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs) *AppendEntriesReply
 					rf.me, args.LeaderID, args.Term, e.Index, rf.commitIndex))
 			}
 			rf.log = rf.log[:e.Index-rf.firstIndex()]
+			if e.Index <= rf.confIndex {
+				confChanged = true // the entry that set our config is gone
+			}
 		}
 		rf.log = append(rf.log, args.Entries[i:]...)
+		for _, ne := range args.Entries[i:] {
+			if ne.Type == EntryConfig {
+				confChanged = true
+			}
+		}
 		// Followers must have entries on disk before acknowledging them.
 		must(rf.storage.Append(args.Entries[i:], true))
 		rf.durableIndex = rf.lastIndex()
@@ -814,6 +881,9 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs) *AppendEntriesReply
 	}
 	if rf.durableIndex > rf.lastIndex() {
 		rf.durableIndex = rf.lastIndex()
+	}
+	if confChanged {
+		rf.recomputeConfig() // configurations take effect on append
 	}
 
 	// Only entries this RPC verified (through lastNew) may be marked
@@ -865,7 +935,7 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs) *InstallSnapsho
 			return reply // refuse; leader keeps retrying, operator sees it
 		}
 		r = &snapshotRecv{term: args.Term, index: args.LastIncludedIndex, lastTerm: args.LastIncludedTerm,
-			total: args.Total, checksum: args.Checksum, buf: make([]byte, 0, min(args.Total, 64<<20))}
+			total: args.Total, checksum: args.Checksum, conf: args.Config, buf: make([]byte, 0, min(args.Total, 64<<20))}
 		rf.snapRecv = r
 	case !same:
 		reply.NextOffset = 0 // unknown transfer: start over
@@ -899,7 +969,7 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs) *InstallSnapsho
 
 	// The snapshot is committed state, so saving it is safe even if our
 	// term or log changes meanwhile; the stored log is untouched.
-	must(rf.storage.SaveSnapshot(r.index, r.lastTerm, r.buf))
+	must(rf.storage.SaveSnapshot(r.index, r.lastTerm, r.buf, r.conf))
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -915,6 +985,10 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs) *InstallSnapsho
 		rf.log = []LogEntry{{Term: r.lastTerm, Index: r.index}}
 	}
 	must(rf.storage.CompactLog(r.index, rf.log[1:]))
+	if r.conf != nil {
+		rf.snapConf = r.conf.clone()
+	}
+	rf.recomputeConfig()
 	// Entries through r.index are covered by the durable snapshot.
 	rf.durableIndex = min(max(rf.durableIndex, r.index), rf.lastIndex())
 	rf.commitIndex = r.index
@@ -959,7 +1033,12 @@ func (rf *Raft) applier() {
 		copy(batch, rf.log[start-rf.firstIndex():end-rf.firstIndex()+1])
 		rf.mu.Unlock()
 		for _, e := range batch {
-			rf.applyCh <- ApplyMsg{CommandValid: true, Command: e.Command, CommandIndex: e.Index, CommandTerm: e.Term}
+			m := ApplyMsg{CommandValid: true, Command: e.Command, CommandIndex: e.Index, CommandTerm: e.Term}
+			if e.Type == EntryConfig {
+				c := decodeConfig(e.Command)
+				m.Command, m.Config = nil, &c
+			}
+			rf.applyCh <- m
 		}
 		rf.mu.Lock()
 		if end > rf.lastApplied {
@@ -1047,16 +1126,25 @@ func (rf *Raft) confirmRound(ctx context.Context) (int, error) {
 	readIndex := rf.commitIndex
 	term := rf.currentTerm
 	args := &AppendEntriesArgs{Term: term, LeaderID: rf.me, PrevLogIndex: -1, LeaderCommit: rf.commitIndex}
+	// Leadership is confirmed by a majority of the latest configuration's
+	// voters (the same set that commits entries).
+	conf := rf.conf.clone()
 	rf.mu.Unlock()
 
-	if rf.peers == 1 {
+	got, needed := 0, conf.Quorum()
+	var others []int
+	for _, v := range conf.Voters() {
+		if v == rf.me {
+			got = 1
+		} else {
+			others = append(others, v)
+		}
+	}
+	if got >= needed {
 		return readIndex, nil
 	}
-	acks := make(chan bool, rf.peers)
-	for p := 0; p < rf.peers; p++ {
-		if p == rf.me {
-			continue
-		}
+	acks := make(chan bool, len(others))
+	for _, p := range others {
 		go func(p int) {
 			c, cancel := context.WithTimeout(ctx, rf.cfg.RPCTimeout)
 			defer cancel()
@@ -1077,8 +1165,7 @@ func (rf *Raft) confirmRound(ctx context.Context) (int, error) {
 			acks <- true
 		}(p)
 	}
-	got, needed := 1, rf.peers/2+1
-	for i := 0; i < rf.peers-1; i++ {
+	for range others {
 		if <-acks {
 			got++
 			if got >= needed {

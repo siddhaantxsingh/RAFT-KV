@@ -108,7 +108,7 @@ func TestFileStorageSnapshotCompaction(t *testing.T) {
 	fs, _, _, _, _ := reopen(t, dir)
 	must(fs.Append(ents(1, 1, 100), true))
 	before := fs.StateSize()
-	must(fs.SaveSnapshot(90, 1, []byte("snap@90")))
+	must(fs.SaveSnapshot(90, 1, []byte("snap@90"), nil))
 	must(fs.CompactLog(90, ents(1, 91, 100)))
 	if fs.StateSize() >= before {
 		t.Fatalf("compaction did not shrink WAL: %d -> %d", before, fs.StateSize())
@@ -190,7 +190,7 @@ func TestFileStorageStateFilesChecksummed(t *testing.T) {
 	fs, _, _, _, _ := reopen(t, dir)
 	must(fs.SetHardState(HardState{Term: 7, VotedFor: 2}))
 	must(fs.Append(ents(1, 1, 10), true))
-	must(fs.SaveSnapshot(5, 1, []byte("snapshot-data")))
+	must(fs.SaveSnapshot(5, 1, []byte("snapshot-data"), nil))
 	must(fs.CompactLog(5, ents(1, 6, 10)))
 
 	// Flip a byte that still decodes as valid gob (silent corruption
@@ -242,7 +242,7 @@ func TestFileStorageSyncConcurrentWithSnapshot(t *testing.T) {
 	<-inWindow
 	snapDone := make(chan error, 1)
 	go func() {
-		if err := fs.SaveSnapshot(5, 1, []byte("s")); err != nil {
+		if err := fs.SaveSnapshot(5, 1, []byte("s"), nil); err != nil {
 			snapDone <- err
 			return
 		}
@@ -283,7 +283,7 @@ func TestFileStorageLoadsLegacyWAL(t *testing.T) {
 	if len(log) != 8 {
 		t.Fatalf("after append: %d entries", len(log))
 	}
-	must(fs.SaveSnapshot(6, 2, []byte("s")))
+	must(fs.SaveSnapshot(6, 2, []byte("s"), nil))
 	must(fs.CompactLog(6, ents(2, 7, 8)))
 	if _, err := os.Stat(filepath.Join(dir, "wal")); !os.IsNotExist(err) {
 		t.Fatalf("legacy wal not removed by compaction")
@@ -302,7 +302,7 @@ func TestFileStorageCompactionCrashLeavesOldSegments(t *testing.T) {
 	must(fs.Append(ents(1, 1, 10), true))
 	must(fs.Append(ents(2, 8, 12), true)) // truncates 8..10, term 2
 	old, _ := os.ReadFile(filepath.Join(dir, segName(0)))
-	must(fs.SaveSnapshot(9, 2, []byte("s")))
+	must(fs.SaveSnapshot(9, 2, []byte("s"), nil))
 	must(fs.CompactLog(9, ents(2, 10, 12)))
 	// "Un-delete" the old segment, as if the crash beat the unlink.
 	must(os.WriteFile(filepath.Join(dir, segName(0)), old, 0o644))
