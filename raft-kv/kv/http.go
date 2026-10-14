@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/siddhaantxsingh/raft-kv/secure"
@@ -145,8 +146,10 @@ func (a *API) handleKV(w http.ResponseWriter, r *http.Request) {
 	res, err := a.Server.Submit(ctx, op)
 	switch {
 	case errors.Is(err, ErrWrongLeader):
-		if l := a.Server.Raft().Leader(); l >= 0 && l < len(a.ClientURLs) {
-			w.Header().Set("X-Raft-Leader", a.ClientURLs[l])
+		if l := a.Server.Raft().Leader(); l >= 0 {
+			if u := a.leaderURL(l); u != "" {
+				w.Header().Set("X-Raft-Leader", u)
+			}
 			w.Header().Set("X-Raft-Leader-ID", strconv.Itoa(l))
 		}
 		http.Error(w, "not leader", http.StatusMisdirectedRequest)
@@ -175,10 +178,25 @@ func (a *API) handleKV(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(apiResponse{Value: res.Value, Found: res.Found, OK: res.OK})
 }
 
+// leaderURL prefers the address in the latest Raft configuration (it
+// covers servers added at runtime) and falls back to ClientURLs.
+func (a *API) leaderURL(id int) string {
+	if u := a.Server.Raft().PeerAddr(id); u != "" {
+		return u
+	}
+	if id < len(a.ClientURLs) {
+		return a.ClientURLs[id]
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------- client side
 
-// HTTPCaller implements Caller against the REST API.
+// HTTPCaller implements Caller against the REST API. Leader hints carry
+// the leader's URL; a URL not yet in URLs (a server added by a membership
+// change) is appended, so the client follows the cluster as it changes.
 type HTTPCaller struct {
+	mu     sync.Mutex
 	URLs   []string
 	Client *http.Client
 }
@@ -197,7 +215,30 @@ func NewSecureHTTPCaller(urls []string, tlsCfg *tls.Config, token string) *HTTPC
 	}}
 }
 
-func (h *HTTPCaller) NumServers() int { return len(h.URLs) }
+func (h *HTTPCaller) NumServers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.URLs)
+}
+
+func (h *HTTPCaller) url(i int) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.URLs[i%len(h.URLs)]
+}
+
+// indexOf returns the index of u in URLs, appending it if absent.
+func (h *HTTPCaller) indexOf(u string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i, x := range h.URLs {
+		if x == u {
+			return i
+		}
+	}
+	h.URLs = append(h.URLs, u)
+	return len(h.URLs) - 1
+}
 
 type leaderErr struct{ hint int }
 
@@ -205,7 +246,7 @@ func (e leaderErr) Error() string   { return fmt.Sprintf("not leader (hint %d)",
 func (e leaderErr) LeaderHint() int { return e.hint }
 
 func (h *HTTPCaller) Call(ctx context.Context, server int, op Op) (Result, error) {
-	u := h.URLs[server] + "/kv/" + op.Key
+	u := h.url(server) + "/kv/" + op.Key
 	var method string
 	var body io.Reader
 	switch op.Type {
@@ -244,8 +285,8 @@ func (h *HTTPCaller) Call(ctx context.Context, server int, op Op) (Result, error
 		return Result{Value: ar.Value, Found: ar.Found, OK: ar.OK}, nil
 	case http.StatusMisdirectedRequest:
 		hint := -1
-		if s := resp.Header.Get("X-Raft-Leader-ID"); s != "" {
-			hint, _ = strconv.Atoi(s)
+		if s := resp.Header.Get("X-Raft-Leader"); s != "" {
+			hint = h.indexOf(s)
 		}
 		return Result{}, leaderErr{hint}
 	case http.StatusConflict:

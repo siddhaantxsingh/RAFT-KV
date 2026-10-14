@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,6 +22,9 @@ import (
 type HTTPTransport struct {
 	Addrs  []string
 	Client *http.Client
+	// From, if >= 0, is sent as X-Raft-From so fault-injecting proxies
+	// (cmd/kvchaos) can tell which link a request travels on.
+	From int
 
 	mu    sync.RWMutex
 	extra map[int]string
@@ -57,6 +61,7 @@ func NewHTTPTransport(addrs []string) *HTTPTransport {
 // URLs must then be https://) and adds a bearer token when token is set.
 func NewSecureHTTPTransport(addrs []string, tlsCfg *tls.Config, token string) *HTTPTransport {
 	return &HTTPTransport{
+		From:  -1,
 		Addrs: addrs,
 		Client: &http.Client{
 			Transport: &secure.TokenTransport{Token: token, Base: &http.Transport{
@@ -82,6 +87,9 @@ func (t *HTTPTransport) call(ctx context.Context, peer int, path string, args, r
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-gob")
+	if t.From >= 0 {
+		req.Header.Set("X-Raft-From", strconv.Itoa(t.From))
+	}
 	resp, err := t.Client.Do(req)
 	if err != nil {
 		return err

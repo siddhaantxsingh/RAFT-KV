@@ -79,6 +79,13 @@ func WithStore(st StateStore) ServerOption {
 	return func(s *Server) { s.store = st }
 }
 
+// WithUnsafeLocalReadsForTesting serves Gets from local state with no
+// leadership check. It is WRONG (stale reads after a partition) and exists
+// only so chaos tests can show that the linearizability checker catches it.
+func WithUnsafeLocalReadsForTesting() ServerOption {
+	return func(s *Server) { s.unsafeLocalReads = true }
+}
+
 // WithMaxSessions sets the dedup table bound (must match on all replicas).
 func WithMaxSessions(n int) ServerOption {
 	return func(s *Server) {

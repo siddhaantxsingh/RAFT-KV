@@ -30,7 +30,10 @@ commands:
   append <key> <value>
   delete <key>
   cas <key> <expected> <value>
-  bench [-clients N] [-duration D] [-read-ratio R] [-keys K] [-value-size B]`)
+  bench [-clients N] [-duration D] [-read-ratio R] [-keys K] [-value-size B]
+  members list
+  members add <id> <peer-url>      (new server must run with -join)
+  members remove <id>`)
 	os.Exit(2)
 }
 
@@ -86,6 +89,8 @@ func main() {
 		fmt.Printf("swapped=%v current=%q\n", ok, cur)
 	case "bench":
 		bench(caller, args[1:])
+	case "members":
+		members(caller, args[1:])
 	default:
 		usage()
 	}
