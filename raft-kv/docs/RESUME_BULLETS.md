@@ -1,5 +1,14 @@
 # Résumé bullets (raft-kv + lsm-engine)
 
+> **2026-10-14 audit:** the transport is HTTP, not gRPC, and there is no
+> C++ code. The LSM bullet cannot be reproduced from public sources yet
+> (see docs/AUDIT_2026-10-14.md). Bullets with current evidence:
+>
+> - Implemented **dynamic membership** (single-server changes with learner catch-up, Raft thesis §4) and tested it under partitions, leader crashes and real-process churn.
+> - Built a **fault-injecting proxy network between real server processes** (partitions, one-way links, packet loss) and checked every run's history for linearizability: 7/7 runs, up to 28k operations each.
+> - Measured **5-node leader failover: max 757 ms over 45 trials** to the first committed write (2x election timeout = 600–1,200 ms), on one machine.
+> - Found and fixed **two WAL durability bugs** with disk-fault injection (short writes, fsync failure, torn and reordered crashes).
+
 All numbers are reproducible from the repositories (docs/PERFORMANCE.md,
 docs/results/). Choose 3–4.
 
