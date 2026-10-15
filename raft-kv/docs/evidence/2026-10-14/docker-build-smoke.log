@@ -1,0 +1,12 @@
+$ docker build -t raftkv:audit .
+sha256:f8c3454f2ac952502ea4650acc3f423034d86163ccb7d6f732e2054f3eba0cb8
+exit=0
+$ docker run -d --name rkv-smoke -p 17000:7000 raftkv:audit -id 0 -peers http://127.0.0.1:7000
+b7f8645d522c2f05d52e71fd70edfbbb32b6fb8a6d44bdcaa28e073ae0125828
+$ curl -X PUT /kv/hello
+204
+$ curl /kv/hello
+{"value":"world","found":true,"ok":true}
+
+$ curl /readyz
+{"leader":0,"ready":true,"reason":"","role":"leader"}

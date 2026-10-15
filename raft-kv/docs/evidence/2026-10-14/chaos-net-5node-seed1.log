@@ -1,0 +1,60 @@
+$ uptime
+ 20:50:03 up 12 min,  0 user,  load average: 16.89, 16.81, 9.51
+$ ./bin/kvchaos -nodes 5 -duration 60s -seed 1 -faults partition,oneway,bridge,loss
+chaos: drop link 0 -> 4 for 1.162s
+chaos: 20% RPC loss + 20ms jitter for 2.106s
+chaos: 20% RPC loss + 20ms jitter for 1.047s
+chaos: drop link 2 -> 0 for 1.015s
+chaos: 20% RPC loss + 20ms jitter for 2.237s
+chaos: bridge [0 3] <-> 1 <-> [4 2] for 1.09s
+chaos: drop link 4 -> 1 for 1.853s
+chaos: bridge [3 2] <-> 0 <-> [4 1] for 888ms
+chaos: partition [2 1] | [0 3 4] for 1.266s
+chaos: 20% RPC loss + 20ms jitter for 2.718s
+chaos: partition [2 4] | [0 1 3] for 996ms
+chaos: 20% RPC loss + 20ms jitter for 1.643s
+chaos: 20% RPC loss + 20ms jitter for 546ms
+chaos: drop link 3 -> 2 for 2.843s
+chaos: bridge [2 4] <-> 0 <-> [3 1] for 1.687s
+chaos: bridge [4 1] <-> 3 <-> [2 0] for 1.591s
+chaos: bridge [1 4] <-> 3 <-> [2 0] for 726ms
+chaos: drop link 3 -> 0 for 2.819s
+{
+  "store": "memory",
+  "nodes": 5,
+  "faults": "partition,oneway,bridge,loss",
+  "seed": 1,
+  "duration_s": 60.137355917,
+  "ops": 12007,
+  "ok": 12002,
+  "unknown_outcome": 5,
+  "sigkills": 0,
+  "leader_sigkills": 0,
+  "pauses": 0,
+  "partitions": 2,
+  "oneway_partitions": 5,
+  "bridge_partitions": 5,
+  "loss_periods": 6,
+  "membership_replacements": 0,
+  "membership_change_failures": 0,
+  "dropped_peer_rpcs": 1934,
+  "final_members": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    7333,
+    7333,
+    7333,
+    7333,
+    7333
+  ],
+  "checker_s": 0.039236869
+}
+CHAOS PASS
+exit=0

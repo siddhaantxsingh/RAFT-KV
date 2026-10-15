@@ -1,0 +1,59 @@
+$ uptime
+ 20:54:26 up 17 min,  0 user,  load average: 36.97, 27.37, 15.60
+$ ./bin/kvchaos -nodes 3 -duration 60s -seed 5 -faults membership,partition,kill
+chaos: partition [0] | [1 2] for 1.239s
+chaos: partition [2] | [0 1] for 1.35s
+chaos: membership: remove 0, add 3
+chaos: partition [1] | [2 3] for 1.774s
+chaos: SIGKILL replica 3 (leader-targeted=false)
+chaos: SIGKILL replica 2 (leader-targeted=true)
+chaos: SIGKILL replica 3 (leader-targeted=true)
+chaos: SIGKILL replica 1 (leader-targeted=false)
+chaos: membership: remove 2, add 4
+chaos: SIGKILL replica 1 (leader-targeted=false)
+chaos: partition [4] | [1 3] for 1.985s
+chaos: SIGKILL replica 3 (leader-targeted=true)
+chaos: partition [1] | [3 4] for 2.306s
+chaos: partition [3] | [1 4] for 2.683s
+chaos: membership: remove 1, add 5
+chaos: SIGKILL replica 3 (leader-targeted=true)
+chaos: SIGKILL replica 5 (leader-targeted=true)
+chaos: membership: remove 3, add 6
+chaos: membership: remove 5, add 7
+chaos: membership: remove 6, add 8
+chaos: SIGKILL replica 4 (leader-targeted=false)
+{
+  "store": "memory",
+  "nodes": 3,
+  "faults": "membership,partition,kill",
+  "seed": 5,
+  "duration_s": 60.637870959,
+  "ops": 28037,
+  "ok": 28011,
+  "unknown_outcome": 26,
+  "sigkills": 9,
+  "leader_sigkills": 5,
+  "pauses": 0,
+  "partitions": 6,
+  "oneway_partitions": 0,
+  "bridge_partitions": 0,
+  "loss_periods": 0,
+  "membership_replacements": 6,
+  "membership_change_failures": 0,
+  "dropped_peer_rpcs": 1898,
+  "final_members": [
+    4,
+    7,
+    8
+  ],
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    16820,
+    16820,
+    16820
+  ],
+  "checker_s": 0.081368897
+}
+CHAOS PASS
+exit=0

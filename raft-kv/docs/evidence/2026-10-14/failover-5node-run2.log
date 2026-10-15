@@ -1,0 +1,123 @@
+$ uptime
+ 08:27:49 up 15 min,  0 user,  load average: 29.35, 23.36, 12.30
+$ ./bin/kvchaos -nodes 5 -failover-trials 15 -base-port 8100 -seed 2
+failover trial 0: leader 2 killed; new leader 1 elected after 371 ms, first PUT committed after 379 ms
+failover trial 1: leader 1 killed; new leader 2 elected after 326 ms, first PUT committed after 335 ms
+failover trial 2: leader 2 killed; new leader 1 elected after 373 ms, first PUT committed after 382 ms
+failover trial 3: leader 1 killed; new leader 4 elected after 344 ms, first PUT committed after 353 ms
+failover trial 4: leader 4 killed; new leader 0 elected after 264 ms, first PUT committed after 269 ms
+failover trial 5: leader 0 killed; new leader 3 elected after 427 ms, first PUT committed after 432 ms
+failover trial 6: leader 3 killed; new leader 2 elected after 404 ms, first PUT committed after 409 ms
+failover trial 7: leader 2 killed; new leader 1 elected after 531 ms, first PUT committed after 544 ms
+failover trial 8: leader 1 killed; new leader 3 elected after 379 ms, first PUT committed after 385 ms
+failover trial 9: leader 3 killed; new leader 0 elected after 375 ms, first PUT committed after 483 ms
+failover trial 10: leader 0 killed; new leader 3 elected after 336 ms, first PUT committed after 342 ms
+failover trial 11: leader 3 killed; new leader 1 elected after 348 ms, first PUT committed after 357 ms
+failover trial 12: leader 1 killed; new leader 4 elected after 379 ms, first PUT committed after 387 ms
+failover trial 13: leader 4 killed; new leader 2 elected after 319 ms, first PUT committed after 325 ms
+failover trial 14: leader 2 killed; new leader 3 elected after 271 ms, first PUT committed after 278 ms
+{
+  "nodes": 5,
+  "election_timeout_min_ms": 300,
+  "election_timeout_max_ms": 600,
+  "trials": [
+    {
+      "old_leader": 2,
+      "new_leader": 1,
+      "new_leader_elected_ms": 371.459,
+      "first_committed_put_ms": 379.37
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 2,
+      "new_leader_elected_ms": 326.176,
+      "first_committed_put_ms": 335.411
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 1,
+      "new_leader_elected_ms": 373.057,
+      "first_committed_put_ms": 382.119
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 4,
+      "new_leader_elected_ms": 344.058,
+      "first_committed_put_ms": 353.427
+    },
+    {
+      "old_leader": 4,
+      "new_leader": 0,
+      "new_leader_elected_ms": 263.612,
+      "first_committed_put_ms": 268.892
+    },
+    {
+      "old_leader": 0,
+      "new_leader": 3,
+      "new_leader_elected_ms": 426.561,
+      "first_committed_put_ms": 432.41
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 2,
+      "new_leader_elected_ms": 403.525,
+      "first_committed_put_ms": 408.853
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 1,
+      "new_leader_elected_ms": 531.241,
+      "first_committed_put_ms": 543.647
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 3,
+      "new_leader_elected_ms": 378.578,
+      "first_committed_put_ms": 385.244
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 0,
+      "new_leader_elected_ms": 375.49,
+      "first_committed_put_ms": 482.781
+    },
+    {
+      "old_leader": 0,
+      "new_leader": 3,
+      "new_leader_elected_ms": 336.309,
+      "first_committed_put_ms": 342.279
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 1,
+      "new_leader_elected_ms": 347.735,
+      "first_committed_put_ms": 357.435
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 4,
+      "new_leader_elected_ms": 379.043,
+      "first_committed_put_ms": 386.7
+    },
+    {
+      "old_leader": 4,
+      "new_leader": 2,
+      "new_leader_elected_ms": 318.841,
+      "first_committed_put_ms": 325.343
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 3,
+      "new_leader_elected_ms": 270.929,
+      "first_committed_put_ms": 277.552
+    }
+  ],
+  "elected_p50_ms": 371.459,
+  "elected_p90_ms": 403.525,
+  "elected_max_ms": 531.241,
+  "put_p50_ms": 379.37,
+  "put_p90_ms": 432.41,
+  "put_max_ms": 543.647,
+  "put_within_2x_min_timeout_pct": 100,
+  "put_within_2x_max_timeout_pct": 100
+}

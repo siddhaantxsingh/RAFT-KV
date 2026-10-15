@@ -89,10 +89,19 @@ func TestAdminMembershipEndToEnd(t *testing.T) {
 			Learner bool
 		} `json:"members"`
 	}
-	_, body := do("GET", urls[3]+"/admin/members", "")
-	json.Unmarshal([]byte(body), &ml)
-	if len(ml.Members) != 4 || ml.Members[3].Learner {
-		t.Fatalf("new server's view of membership: %s", body)
+	// The promotion reaches the new server with the next AppendEntries.
+	var body string
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		_, body = do("GET", urls[3]+"/admin/members", "")
+		ml.Members = nil
+		json.Unmarshal([]byte(body), &ml)
+		if len(ml.Members) == 4 && !ml.Members[3].Learner {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("new server's view of membership: %s", body)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	// The new server serves (redirects) clients and has the data.
 	ck3 := kv.NewClerk(kv.NewHTTPCaller(urls[3:]))

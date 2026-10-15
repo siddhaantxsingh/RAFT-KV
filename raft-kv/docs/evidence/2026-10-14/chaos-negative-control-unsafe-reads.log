@@ -1,0 +1,54 @@
+$ uptime
+ 20:55:33 up 18 min,  0 user,  load average: 43.39, 31.62, 17.95
+$ ./bin/kvchaos -nodes 5 -duration 40s -seed 6 -faults partition -server-args=-unsafe-stale-reads-for-testing
+chaos: partition [1 0] | [2 3 4] for 590ms
+chaos: partition [4 3] | [0 1 2] for 2.745s
+chaos: partition [2 1] | [0 3 4] for 2.562s
+chaos: partition [3 0] | [1 2 4] for 1.37s
+chaos: partition [2 4] | [0 1 3] for 1.808s
+chaos: partition [4 1] | [0 2 3] for 1.934s
+chaos: partition [1 0] | [2 3 4] for 511ms
+chaos: partition [2 4] | [0 1 3] for 952ms
+chaos: partition [3 2] | [0 1 4] for 2.223s
+chaos: partition [2 1] | [0 3 4] for 2.743s
+chaos: partition [1 4] | [0 2 3] for 1.405s
+chaos: partition [0 1] | [2 3 4] for 2.883s
+{
+  "store": "memory",
+  "nodes": 5,
+  "faults": "partition",
+  "seed": 6,
+  "duration_s": 41.761320793,
+  "ops": 25193,
+  "ok": 25192,
+  "unknown_outcome": 1,
+  "sigkills": 0,
+  "leader_sigkills": 0,
+  "pauses": 0,
+  "partitions": 12,
+  "oneway_partitions": 0,
+  "bridge_partitions": 0,
+  "loss_periods": 0,
+  "membership_replacements": 0,
+  "membership_change_failures": 0,
+  "dropped_peer_rpcs": 459,
+  "final_members": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    15126,
+    15126,
+    15126,
+    15126,
+    15126
+  ],
+  "checker_s": 0.09677204
+}
+CHAOS PASS
+exit=0

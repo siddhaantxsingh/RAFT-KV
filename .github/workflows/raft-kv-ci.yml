@@ -1,0 +1,49 @@
+# GitHub only runs workflows from the repository root, so this workflow
+# drives the Go module in raft-kv/.
+name: raft-kv CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+defaults:
+  run:
+    working-directory: raft-kv
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.7"
+      - name: gofmt and vet
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go vet -tags lsm ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: unit, integration and fault tests (race detector)
+        run: go test -race -count=1 ./...
+      - name: build binaries
+        run: go build -o bin/ ./cmd/...
+      - name: process chaos (kill/pause)
+        run: ./bin/kvchaos -nodes 3 -duration 20s -seed 1 -faults kill,pause
+      - name: network and membership chaos (5 processes behind fault proxies)
+        run: ./bin/kvchaos -nodes 5 -duration 30s -seed 2 -base-port 7300 -faults kill,partition,oneway,bridge,loss,membership
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build and smoke test
+        run: |
+          docker build -t raftkv:ci .
+          docker run -d --name rkv -p 17000:7000 raftkv:ci -id 0 -peers http://127.0.0.1:7000
+          for i in $(seq 30); do curl -sf http://127.0.0.1:17000/readyz && break; sleep 1; done
+          curl -sf -X PUT --data world http://127.0.0.1:17000/kv/hello
+          test "$(curl -sf http://127.0.0.1:17000/kv/hello)" = '{"value":"world","found":true,"ok":true}'

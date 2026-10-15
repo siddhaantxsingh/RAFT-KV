@@ -16,7 +16,6 @@ type Network struct {
 	nodes      map[int]*Raft
 	connected  map[int]bool
 	unreliable bool
-	longDelays bool
 	rpcCount   int
 }
 
