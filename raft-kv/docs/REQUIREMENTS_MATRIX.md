@@ -21,7 +21,7 @@ Evidence paths are under `docs/evidence/2026-10-14/` unless stated.
 | 14 | Benchmarks | VERIFIED (older VM) | PARTIAL | `bench.log`: 2,065–2,466 ops/s (50 % reads) and 2,639–3,284 ops/s (90 % reads), measured at load average 22–31 on 4 vCPU; not comparable with older numbers |
 | 15 | gRPC transport | NOT IMPLEMENTED | NOT IMPLEMENTED | transport is gob over HTTP/1.1 |
 | 16 | LSM (Rust) state store via C ABI | BLOCKED | BLOCKED | `baseline-lsm.log`: `lsm-capi` crate not published |
-| 17 | Static analysis | PARTIAL | PARTIAL | staticcheck PASS after fixes; govulncheck BLOCKED locally (in CI) |
+| 17 | Static analysis | PARTIAL | VERIFIED (CI) | staticcheck PASS after fixes; govulncheck BLOCKED locally (in CI) |
 | 18 | Docker image | NOT RUN | VERIFIED | `docker-build-smoke.log` |
-| 19 | CI that actually runs | NOT IMPLEMENTED | IMPLEMENTED BUT UNVERIFIED unless noted in the audit | `.github/workflows/raft-kv-ci.yml` at the repo root |
+| 19 | CI that actually runs | NOT IMPLEMENTED | VERIFIED | `.github/workflows/raft-kv-ci.yml`; run 38740044982 green (fmt, vet, staticcheck, govulncheck on latest Go, race tests, both chaos runs, docker smoke) |
 | 20 | Backup / restore tooling | NOT IMPLEMENTED | NOT IMPLEMENTED | — |
