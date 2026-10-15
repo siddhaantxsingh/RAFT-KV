@@ -18,5 +18,9 @@ Things only the repository owner can do.
    `bin/kvctl bench` plus `kvchaos -failover-trials` style measurements
    there. Success: throughput and failover numbers measured over a real
    network.
-5. **Merge.** Review and merge `ccr-a6e6c567-y4w7k8` into `main` yourself;
+5. **Build releases with a patched Go toolchain.** go1.24.7 has 37 reachable
+   standard-library vulnerabilities (govulncheck in CI). Install the latest Go
+   release and rebuild. Success: `govulncheck ./...` prints no reachable
+   vulnerabilities.
+6. **Merge.** Review and merge `ccr-a6e6c567-y4w7k8` into `main` yourself;
    no pull request was opened.
