@@ -105,10 +105,10 @@ type slowSnapshotStorage struct {
 	release chan struct{}
 }
 
-func (s *slowSnapshotStorage) SaveSnapshot(index, term int, data []byte) error {
+func (s *slowSnapshotStorage) SaveSnapshot(index, term int, data []byte, conf *Configuration) error {
 	close(s.started)
 	<-s.release
-	return s.MemoryStorage.SaveSnapshot(index, term, data)
+	return s.MemoryStorage.SaveSnapshot(index, term, data, conf)
 }
 
 // Audit R-M2: Snapshot wrote the snapshot to disk while holding rf.mu, so

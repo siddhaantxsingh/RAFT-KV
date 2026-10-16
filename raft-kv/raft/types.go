@@ -5,6 +5,9 @@ type LogEntry struct {
 	Term    int
 	Index   int
 	Command []byte
+	// Type is EntryNormal (zero value, so WAL records written before
+	// membership changes existed decode unchanged) or EntryConfig.
+	Type EntryType
 }
 
 // ApplyMsg is delivered on the apply channel once an entry is committed,
@@ -14,6 +17,9 @@ type ApplyMsg struct {
 	Command      []byte
 	CommandIndex int
 	CommandTerm  int
+	// Config is set (and Command is nil) when the entry is a membership
+	// change. Services can treat it like a no-op.
+	Config *Configuration
 
 	SnapshotValid bool
 	Snapshot      []byte
@@ -67,6 +73,9 @@ type InstallSnapshotArgs struct {
 	Done              bool
 	Total             int64
 	Checksum          uint32
+	// Config is the configuration in effect at LastIncludedIndex. nil
+	// only for snapshots written before membership changes existed.
+	Config *Configuration
 }
 
 // InstallSnapshotReply tells the leader where to resume (NextOffset) so an

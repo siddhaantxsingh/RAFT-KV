@@ -1,0 +1,19 @@
+--- PASS: TestDiskFaultFsyncFailureIsStickyAndReported (0.00s)
+--- PASS: TestDiskFaultShortWriteIsStickyAndRecoverable (0.03s)
+--- PASS: TestDiskFaultRaftFailStopOnFsyncError (0.03s)
+    diskfault_test.go:365: load refused (ErrCorruptWAL, no data loss) in 1 of 100 out-of-order write-back crashes
+--- PASS: TestDiskFaultCrashConsistency (20.74s)
+--- PASS: TestFileStorageRoundTrip (0.01s)
+--- PASS: TestFileStorageTruncationReplay (0.01s)
+--- PASS: TestFileStorageTornTail (0.01s)
+--- PASS: TestFileStorageCorruptRecord (0.01s)
+--- PASS: TestFileStorageSnapshotCompaction (0.02s)
+--- PASS: TestFileStorageMidWALCorruptionFailsLoad (0.03s)
+--- PASS: TestFileStorageCorruptLengthFailsLoad (0.03s)
+--- PASS: TestFileStorageZeroTailIsTorn (0.00s)
+--- PASS: TestFileStorageStateFilesChecksummed (0.02s)
+--- PASS: TestFileStorageSyncConcurrentWithSnapshot (0.07s)
+--- PASS: TestFileStorageLoadsLegacyWAL (0.01s)
+--- PASS: TestFileStorageCompactionCrashLeavesOldSegments (0.01s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/raft	21.129s

@@ -1,0 +1,11 @@
+$ staticcheck ./...
+cmd/kvserver/store_nolsm.go:11:7: const lsmAvailable is unused (U1000)
+raft/network.go:19:2: field longDelays is unused (U1000)
+exit=1
+$ govulncheck ./...
+govulncheck: fetching vulnerabilities: Get "https://vuln.go.dev/index/modules.json.gz": Forbidden
+exit=1
+$ staticcheck ./...  (after fixes)
+exit=0
+$ staticcheck -tags lsm ./...
+exit=0

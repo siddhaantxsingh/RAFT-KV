@@ -1,0 +1,9 @@
+ 20:42:55 up 5 min,  0 user,  load average: 13.41, 6.87, 2.86
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvchaos	[no test files]
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvctl	[no test files]
+ok  	github.com/siddhaantxsingh/raft-kv/cmd/kvserver	2.430s
+ok  	github.com/siddhaantxsingh/raft-kv/kv	71.430s
+ok  	github.com/siddhaantxsingh/raft-kv/lincheck	1.133s
+ok  	github.com/siddhaantxsingh/raft-kv/raft	113.980s
+ok  	github.com/siddhaantxsingh/raft-kv/secure	1.976s
+?   	github.com/siddhaantxsingh/raft-kv/secure/securetest	[no test files]

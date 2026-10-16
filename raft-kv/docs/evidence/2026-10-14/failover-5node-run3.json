@@ -1,0 +1,105 @@
+{
+  "nodes": 5,
+  "election_timeout_min_ms": 300,
+  "election_timeout_max_ms": 600,
+  "trials": [
+    {
+      "old_leader": 0,
+      "new_leader": 3,
+      "new_leader_elected_ms": 395.793,
+      "first_committed_put_ms": 407.104
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 4,
+      "new_leader_elected_ms": 410.825,
+      "first_committed_put_ms": 417.199
+    },
+    {
+      "old_leader": 4,
+      "new_leader": 0,
+      "new_leader_elected_ms": 350.254,
+      "first_committed_put_ms": 358.154
+    },
+    {
+      "old_leader": 0,
+      "new_leader": 3,
+      "new_leader_elected_ms": 340.553,
+      "first_committed_put_ms": 346.382
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 2,
+      "new_leader_elected_ms": 292.151,
+      "first_committed_put_ms": 297.991
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 3,
+      "new_leader_elected_ms": 327.799,
+      "first_committed_put_ms": 433.091
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 0,
+      "new_leader_elected_ms": 362.348,
+      "first_committed_put_ms": 371.619
+    },
+    {
+      "old_leader": 0,
+      "new_leader": 4,
+      "new_leader_elected_ms": 330.559,
+      "first_committed_put_ms": 337.024
+    },
+    {
+      "old_leader": 4,
+      "new_leader": 2,
+      "new_leader_elected_ms": 259.547,
+      "first_committed_put_ms": 265.65
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 1,
+      "new_leader_elected_ms": 398.112,
+      "first_committed_put_ms": 407.963
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 3,
+      "new_leader_elected_ms": 476.794,
+      "first_committed_put_ms": 488.212
+    },
+    {
+      "old_leader": 3,
+      "new_leader": 1,
+      "new_leader_elected_ms": 308.031,
+      "first_committed_put_ms": 316.143
+    },
+    {
+      "old_leader": 1,
+      "new_leader": 2,
+      "new_leader_elected_ms": 356.046,
+      "first_committed_put_ms": 366.245
+    },
+    {
+      "old_leader": 2,
+      "new_leader": 0,
+      "new_leader_elected_ms": 368.758,
+      "first_committed_put_ms": 469.617
+    },
+    {
+      "old_leader": 0,
+      "new_leader": 1,
+      "new_leader_elected_ms": 374.185,
+      "first_committed_put_ms": 475.758
+    }
+  ],
+  "elected_p50_ms": 356.046,
+  "elected_p90_ms": 398.112,
+  "elected_max_ms": 476.794,
+  "put_p50_ms": 371.619,
+  "put_p90_ms": 469.617,
+  "put_max_ms": 488.212,
+  "put_within_2x_min_timeout_pct": 100,
+  "put_within_2x_max_timeout_pct": 100
+}

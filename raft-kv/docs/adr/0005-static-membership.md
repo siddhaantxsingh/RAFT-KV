@@ -1,6 +1,6 @@
 # ADR 0005: Keep membership static for now
 
-**Status:** accepted
+**Status:** superseded by [ADR 0006](0006-single-server-membership-changes.md) (2026-10-14)
 
 ## Context
 The hardening plan listed joint-consensus membership changes. They touch

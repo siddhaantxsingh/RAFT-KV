@@ -1,0 +1,137 @@
+ 18:11:35 up 6 min,  0 user,  load average: 5.68, 1.39, 0.46
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvchaos	[no test files]
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvctl	[no test files]
+=== RUN   TestSecureClusterEndToEnd
+2026/10/14 18:11:40 http: TLS handshake error from 127.0.0.1:46912: tls: client didn't provide a certificate
+--- PASS: TestSecureClusterEndToEnd (0.83s)
+=== RUN   TestParseFlagsRejectsSchemeMismatch
+--- PASS: TestParseFlagsRejectsSchemeMismatch (0.00s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/cmd/kvserver	1.875s
+=== RUN   TestKVBasic
+--- PASS: TestKVBasic (0.64s)
+=== RUN   TestKVConcurrent
+    kv_test.go:285: 13453 operations checked for linearizability
+--- PASS: TestKVConcurrent (9.27s)
+=== RUN   TestKVUnreliable
+    kv_test.go:285: 1228 operations checked for linearizability
+--- PASS: TestKVUnreliable (9.81s)
+=== RUN   TestKVPartitions
+    kv_test.go:285: 9052 operations checked for linearizability
+--- PASS: TestKVPartitions (10.09s)
+=== RUN   TestKVCrashRestart
+    kv_test.go:285: 12374 operations checked for linearizability
+--- PASS: TestKVCrashRestart (18.77s)
+=== RUN   TestKVSnapshotPartitionsCrashUnreliable
+    kv_test.go:285: 402 operations checked for linearizability
+--- PASS: TestKVSnapshotPartitionsCrashUnreliable (15.06s)
+=== RUN   TestKVNoMinorityProgress
+--- PASS: TestKVNoMinorityProgress (2.01s)
+=== RUN   TestCheckerCatchesStaleReads
+--- PASS: TestCheckerCatchesStaleReads (2.29s)
+=== RUN   TestAnonymousWritesKeepNoSessionState
+--- PASS: TestAnonymousWritesKeepNoSessionState (0.00s)
+=== RUN   TestSessionTableIsBoundedAndDeterministic
+--- PASS: TestSessionTableIsBoundedAndDeterministic (0.03s)
+=== RUN   TestEvictedSessionRetryIsRejectedNotReapplied
+--- PASS: TestEvictedSessionRetryIsRejectedNotReapplied (0.00s)
+=== RUN   TestClerkRecoversFromExpiredSession
+--- PASS: TestClerkRecoversFromExpiredSession (0.96s)
+=== RUN   TestHTTPAnonymousAndBadSessionHeaders
+--- PASS: TestHTTPAnonymousAndBadSessionHeaders (0.37s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/kv	70.364s
+=== RUN   TestSequentialOK
+--- PASS: TestSequentialOK (0.00s)
+=== RUN   TestStaleRead
+--- PASS: TestStaleRead (0.00s)
+=== RUN   TestConcurrentEitherOrder
+--- PASS: TestConcurrentEitherOrder (0.00s)
+=== RUN   TestUnknownOutcome
+--- PASS: TestUnknownOutcome (0.00s)
+=== RUN   TestCAS
+--- PASS: TestCAS (0.00s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/lincheck	1.027s
+=== RUN   TestInitialElection
+--- PASS: TestInitialElection (1.66s)
+=== RUN   TestReElection
+--- PASS: TestReElection (2.51s)
+=== RUN   TestManyElections
+--- PASS: TestManyElections (3.36s)
+=== RUN   TestBasicAgree
+--- PASS: TestBasicAgree (0.65s)
+=== RUN   TestFailAgree
+--- PASS: TestFailAgree (1.42s)
+=== RUN   TestFailNoAgree
+--- PASS: TestFailNoAgree (1.98s)
+=== RUN   TestConcurrentStarts
+--- PASS: TestConcurrentStarts (0.68s)
+=== RUN   TestRejoin
+--- PASS: TestRejoin (3.46s)
+=== RUN   TestBackup
+--- PASS: TestBackup (9.86s)
+=== RUN   TestPersistCrashRestart
+--- PASS: TestPersistCrashRestart (2.18s)
+=== RUN   TestFigure8Unreliable
+--- PASS: TestFigure8Unreliable (4.62s)
+=== RUN   TestSnapshotBasic
+--- PASS: TestSnapshotBasic (3.99s)
+=== RUN   TestSnapshotInstall
+--- PASS: TestSnapshotInstall (6.03s)
+=== RUN   TestSnapshotCrashRestartUnreliable
+--- PASS: TestSnapshotCrashRestartUnreliable (22.33s)
+=== RUN   TestCommitIndexNeverDecreases
+--- PASS: TestCommitIndexNeverDecreases (0.00s)
+=== RUN   TestInstallSnapshotChunksResumeAndVerify
+--- PASS: TestInstallSnapshotChunksResumeAndVerify (0.00s)
+=== RUN   TestInstallSnapshotRejectsCorruptAssembly
+--- PASS: TestInstallSnapshotRejectsCorruptAssembly (0.00s)
+=== RUN   TestSnapshotWriteDoesNotHoldRaftLock
+--- PASS: TestSnapshotWriteDoesNotHoldRaftLock (0.00s)
+=== RUN   TestFileStorageRoundTrip
+--- PASS: TestFileStorageRoundTrip (0.02s)
+=== RUN   TestFileStorageTruncationReplay
+--- PASS: TestFileStorageTruncationReplay (0.01s)
+=== RUN   TestFileStorageTornTail
+--- PASS: TestFileStorageTornTail (0.01s)
+=== RUN   TestFileStorageCorruptRecord
+--- PASS: TestFileStorageCorruptRecord (0.00s)
+=== RUN   TestFileStorageSnapshotCompaction
+--- PASS: TestFileStorageSnapshotCompaction (0.01s)
+=== RUN   TestFileStorageMidWALCorruptionFailsLoad
+--- PASS: TestFileStorageMidWALCorruptionFailsLoad (0.02s)
+=== RUN   TestFileStorageCorruptLengthFailsLoad
+--- PASS: TestFileStorageCorruptLengthFailsLoad (0.01s)
+=== RUN   TestFileStorageZeroTailIsTorn
+--- PASS: TestFileStorageZeroTailIsTorn (0.00s)
+=== RUN   TestFileStorageStateFilesChecksummed
+--- PASS: TestFileStorageStateFilesChecksummed (0.03s)
+=== RUN   TestFileStorageSyncConcurrentWithSnapshot
+--- PASS: TestFileStorageSyncConcurrentWithSnapshot (0.07s)
+=== RUN   TestFileStorageLoadsLegacyWAL
+--- PASS: TestFileStorageLoadsLegacyWAL (0.02s)
+=== RUN   TestFileStorageCompactionCrashLeavesOldSegments
+--- PASS: TestFileStorageCompactionCrashLeavesOldSegments (0.01s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/raft	66.025s
+=== RUN   TestMutualTLS
+2026/10/14 18:11:41 http: TLS handshake error from 127.0.0.1:36024: tls: client didn't provide a certificate
+2026/10/14 18:11:41 http: TLS handshake error from 127.0.0.1:36032: tls: client didn't provide a certificate
+2026/10/14 18:11:41 http: TLS handshake error from 127.0.0.1:44846: remote error: tls: bad certificate
+--- PASS: TestMutualTLS (0.05s)
+=== RUN   TestServerOnlyTLSAndBadFiles
+--- PASS: TestServerOnlyTLSAndBadFiles (0.02s)
+=== RUN   TestRequireToken
+--- PASS: TestRequireToken (0.01s)
+=== RUN   TestReadTokenRejectsShortTokens
+--- PASS: TestReadTokenRejectsShortTokens (0.00s)
+=== RUN   TestLimitBody
+--- PASS: TestLimitBody (0.50s)
+PASS
+ok  	github.com/siddhaantxsingh/raft-kv/secure	1.599s
+?   	github.com/siddhaantxsingh/raft-kv/secure/securetest	[no test files]
+
+real	1m14.659s
+user	0m50.303s
+sys	0m5.860s

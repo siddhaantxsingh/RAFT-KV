@@ -7,6 +7,8 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/siddhaantxsingh/raft-kv/secure"
@@ -14,9 +16,41 @@ import (
 
 // HTTPTransport sends Raft RPCs as gob-encoded HTTP POSTs. Peers are
 // addressed by index into Addrs (e.g. "http://10.0.0.2:7001").
+//
+// Addresses of servers added by membership changes arrive through
+// SetPeerAddrs (raft.AddressBook) and override Addrs.
 type HTTPTransport struct {
 	Addrs  []string
 	Client *http.Client
+	// From, if >= 0, is sent as X-Raft-From so fault-injecting proxies
+	// (cmd/kvchaos) can tell which link a request travels on.
+	From int
+
+	mu    sync.RWMutex
+	extra map[int]string
+}
+
+// PeerAddr returns the URL for peer id ("" if unknown).
+func (t *HTTPTransport) PeerAddr(id int) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if a, ok := t.extra[id]; ok {
+		return a
+	}
+	if id >= 0 && id < len(t.Addrs) {
+		return t.Addrs[id]
+	}
+	return ""
+}
+
+// SetPeerAddrs records the addresses from the latest configuration.
+func (t *HTTPTransport) SetPeerAddrs(addrs map[int]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.extra = make(map[int]string, len(addrs))
+	for id, a := range addrs {
+		t.extra[id] = a
+	}
 }
 
 func NewHTTPTransport(addrs []string) *HTTPTransport {
@@ -27,6 +61,7 @@ func NewHTTPTransport(addrs []string) *HTTPTransport {
 // URLs must then be https://) and adds a bearer token when token is set.
 func NewSecureHTTPTransport(addrs []string, tlsCfg *tls.Config, token string) *HTTPTransport {
 	return &HTTPTransport{
+		From:  -1,
 		Addrs: addrs,
 		Client: &http.Client{
 			Transport: &secure.TokenTransport{Token: token, Base: &http.Transport{
@@ -43,11 +78,18 @@ func (t *HTTPTransport) call(ctx context.Context, peer int, path string, args, r
 	if err := gob.NewEncoder(&buf).Encode(args); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.Addrs[peer]+path, &buf)
+	addr := t.PeerAddr(peer)
+	if addr == "" {
+		return fmt.Errorf("raft rpc %s: no address for peer %d", path, peer)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr+path, &buf)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-gob")
+	if t.From >= 0 {
+		req.Header.Set("X-Raft-From", strconv.Itoa(t.From))
+	}
 	resp, err := t.Client.Do(req)
 	if err != nil {
 		return err

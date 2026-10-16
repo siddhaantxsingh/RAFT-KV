@@ -1,0 +1,36 @@
+$ uptime
+ 08:30:29 up 18 min,  0 user,  load average: 22.26, 23.08, 14.00
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.5 (run 1)
+clients=32 duration=10s read-ratio=0.50
+ops=20649 errors=0 throughput=2065 ops/s
+latency p50=12.355785ms p95=37.45085ms p99=67.577151ms max=211.757966ms
+$ uptime
+ 08:30:39 up 18 min,  0 user,  load average: 25.90, 23.84, 14.34
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.5 (run 2)
+clients=32 duration=10s read-ratio=0.50
+ops=24658 errors=0 throughput=2466 ops/s
+latency p50=10.872802ms p95=27.542814ms p99=46.308559ms max=183.522821ms
+$ uptime
+ 08:30:49 up 18 min,  0 user,  load average: 28.01, 24.35, 14.61
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.5 (run 3)
+clients=32 duration=10s read-ratio=0.50
+ops=21086 errors=0 throughput=2109 ops/s
+latency p50=12.091062ms p95=33.216955ms p99=71.148306ms max=406.260607ms
+$ uptime
+ 08:30:59 up 18 min,  0 user,  load average: 28.75, 24.63, 14.80
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.9 (run 1)
+clients=32 duration=10s read-ratio=0.90
+ops=32842 errors=0 throughput=3284 ops/s
+latency p50=7.178089ms p95=23.286077ms p99=50.360172ms max=136.728335ms
+$ uptime
+ 08:31:10 up 18 min,  0 user,  load average: 29.59, 24.94, 15.01
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.9 (run 2)
+clients=32 duration=10s read-ratio=0.90
+ops=31682 errors=0 throughput=3168 ops/s
+latency p50=7.992137ms p95=23.423689ms p99=45.342002ms max=168.345416ms
+$ uptime
+ 08:31:20 up 19 min,  0 user,  load average: 31.71, 25.55, 15.32
+$ ./bin/kvctl bench -clients 32 -duration 10s -read-ratio 0.9 (run 3)
+clients=32 duration=10s read-ratio=0.90
+ops=26389 errors=0 throughput=2639 ops/s
+latency p50=8.390563ms p95=30.042515ms p99=72.905274ms max=388.90431ms

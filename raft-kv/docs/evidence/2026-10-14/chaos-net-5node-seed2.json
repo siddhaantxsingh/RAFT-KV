@@ -1,0 +1,37 @@
+{
+  "store": "memory",
+  "nodes": 5,
+  "faults": "partition,oneway,bridge,loss",
+  "seed": 2,
+  "duration_s": 63.230046325,
+  "ops": 26443,
+  "ok": 26443,
+  "unknown_outcome": 0,
+  "sigkills": 0,
+  "leader_sigkills": 0,
+  "pauses": 0,
+  "partitions": 3,
+  "oneway_partitions": 5,
+  "bridge_partitions": 7,
+  "loss_periods": 2,
+  "membership_replacements": 0,
+  "membership_change_failures": 0,
+  "dropped_peer_rpcs": 4223,
+  "final_members": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    15836,
+    15836,
+    15836,
+    15836,
+    15836
+  ],
+  "checker_s": 0.085604144
+}

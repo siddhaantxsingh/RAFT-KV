@@ -23,6 +23,7 @@ type cluster struct {
 	logs       []map[int]int // per-peer: index -> command value
 	maxIndex   int
 	snapEvery  int // if >0, peers snapshot every snapEvery applied entries
+	boot       int // bootstrap configuration size; peers >= boot start with Join
 	errMsg     string
 	start      time.Time
 	stopMon    chan struct{}
@@ -52,8 +53,15 @@ func testConfig() Config {
 }
 
 func newCluster(t *testing.T, n int, unreliable bool, snapEvery int) *cluster {
+	return newClusterBoot(t, n, n, unreliable, snapEvery)
+}
+
+// newClusterBoot starts n peers of which 0..boot-1 form the bootstrap
+// configuration; the rest start empty (Join) and are idle until a
+// membership change adds them.
+func newClusterBoot(t *testing.T, n, boot int, unreliable bool, snapEvery int) *cluster {
 	c := &cluster{
-		t: t, n: n, net: NewNetwork(),
+		t: t, n: n, net: NewNetwork(), boot: boot,
 		rafts: make([]*Raft, n), persisters: make([]*MemoryStorage, n),
 		applyChs: make([]chan ApplyMsg, n), logs: make([]map[int]int, n),
 		snapEvery: snapEvery, start: time.Now(),
@@ -128,7 +136,9 @@ func (c *cluster) startPeer(i int) {
 	if _, _, snap := c.persisters[i].Snapshot(); len(snap) > 0 {
 		c.restoreSnapshot(i, snap)
 	}
-	rf := New(i, c.n, c.net.Endpoint(i), c.persisters[i], ch, testConfig())
+	cfg := testConfig()
+	cfg.Join = i >= c.boot
+	rf := New(i, c.boot, c.net.Endpoint(i), c.persisters[i], ch, cfg)
 	c.mu.Lock()
 	c.rafts[i] = rf
 	c.mu.Unlock()

@@ -50,6 +50,8 @@ type config struct {
 	maxSessions     int
 	readyMaxLag     int
 	store           string
+	join            bool
+	unsafeReads     bool
 }
 
 func parseFlags(args []string) (config, error) {
@@ -73,6 +75,8 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&c.maxSessions, "max-sessions", kv.DefaultMaxSessions, "client session table bound (must match on all replicas)")
 	fs.IntVar(&c.readyMaxLag, "ready-max-lag", 1000, "/readyz fails while more than this many committed entries are unapplied")
 	fs.StringVar(&c.store, "store", "memory", "state machine store: memory, or lsm (binary built with -tags lsm)")
+	fs.BoolVar(&c.unsafeReads, "unsafe-stale-reads-for-testing", false, "BROKEN on purpose: serve reads locally without ReadIndex (chaos-test negative control only)")
+	fs.BoolVar(&c.join, "join", false, "start outside the bootstrap configuration and wait to be added (POST /admin/members on the leader)")
 	if err := fs.Parse(args); err != nil {
 		return c, err
 	}
@@ -134,6 +138,7 @@ func newNode(c config, logger *slog.Logger) (*node, error) {
 		return nil, err
 	}
 	rcfg := raft.DefaultConfig()
+	rcfg.Join = c.join
 	if c.verbose {
 		rcfg.Logger = slog.NewLogLogger(logger.Handler(), slog.LevelInfo)
 	}
@@ -149,6 +154,9 @@ func newNode(c config, logger *slog.Logger) (*node, error) {
 	}, raft.HandlerOptions{Token: peerToken, MaxBodyBytes: max(raft.DefaultMaxRPCBody, 2*int64(rcfg.SnapshotChunkSize))})
 
 	opts := []kv.ServerOption{kv.WithMaxSessions(c.maxSessions)}
+	if c.unsafeReads {
+		opts = append(opts, kv.WithUnsafeLocalReadsForTesting())
+	}
 	if c.store == "lsm" {
 		st, err := openLSMStore(fmt.Sprintf("%s/node-%d/lsm", c.dataDir, c.id))
 		if err != nil {
@@ -156,8 +164,9 @@ func newNode(c config, logger *slog.Logger) (*node, error) {
 		}
 		opts = append(opts, kv.WithStore(st))
 	}
-	s := kv.NewServer(c.id, len(c.peers), raft.NewSecureHTTPTransport(c.peers, peerTLS, peerToken),
-		storage, c.maxState, rcfg, opts...)
+	tr := raft.NewSecureHTTPTransport(c.peers, peerTLS, peerToken)
+	tr.From = c.id
+	s := kv.NewServer(c.id, len(c.peers), tr, storage, c.maxState, rcfg, opts...)
 	s.LogReads = c.logReads
 	srv.Store(s)
 	n.server = s
@@ -166,6 +175,7 @@ func newNode(c config, logger *slog.Logger) (*node, error) {
 	(&kv.API{Server: s, ClientURLs: c.peers, Timeout: 3 * time.Second,
 		MaxKeyBytes: c.maxKeyBytes, MaxValueBytes: c.maxValueBytes}).Register(api)
 	mux.Handle("/kv/", n.metrics.wrap("/kv", secure.RequireToken(clientToken, api)))
+	mux.Handle("/admin/", secure.RequireToken(clientToken, membersHandler(s)))
 
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -1,0 +1,18 @@
+$ ls /home/user/lsm_engine/lsm-engine (sibling checkout of siddhaantxsingh/lsm-engine)
+Cargo.lock
+Cargo.toml
+DESIGN.md
+LICENSE
+README.md
+src
+tests
+$ grep -rn capi /home/user/lsm_engine/lsm-engine --include=Cargo.toml
+(no lsm-capi crate)
+$ go vet -tags lsm ./kv/lsmstore
+exit=0
+$ go test -tags lsm -count=1 ./kv/lsmstore
+/usr/bin/ld: cannot find -l:liblsm_capi.a: No such file or directory
+collect2: error: ld returned 1 exit status
+
+FAIL	github.com/siddhaantxsingh/raft-kv/kv/lsmstore [build failed]
+FAIL

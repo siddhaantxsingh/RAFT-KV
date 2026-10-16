@@ -243,6 +243,35 @@ The goal is:
 
 ------------------------------------------------------------------------
 
+## 🔄 2026-10-14 audit update
+
+Details and evidence: [docs/AUDIT_2026-10-14.md](docs/AUDIT_2026-10-14.md),
+[docs/REQUIREMENTS_MATRIX.md](docs/REQUIREMENTS_MATRIX.md),
+raw logs in [docs/evidence/2026-10-14/](docs/evidence/2026-10-14/).
+
+-   **Membership changes** (single-server changes, Raft thesis §4): learners
+    catch up before promotion, configurations take effect on append and
+    revert on truncation, are stored with snapshots, and a removed leader
+    steps down. Admin API `GET/POST/DELETE /admin/members`, `kvserver -join`,
+    `kvctl members list|add|remove`. See [ADR 0006](docs/adr/0006-single-server-membership-changes.md).
+-   **Network faults between real processes**: `kvchaos` puts a
+    fault-injecting HTTP proxy in front of every `kvserver` process
+    (majority/minority partitions, one-way links, bridge partitions, 20 %
+    loss with jitter) and can replace members while the workload runs.
+    7 recorded runs (3 and 5 processes, 30–60 s, 12k–28k operations each):
+    all linearizable and converged.
+-   **Disk-fault tests**: fsync EIO, short writes, and crashes that keep a
+    cut, torn or out-of-order part of the unsynced WAL tail. Two WAL bugs
+    were found and fixed (see the audit).
+-   **5-node leader failover** (SIGKILL the leader, 45 trials, shared
+    4-vCPU machine with load average 12–25): new leader elected after
+    p50 ≈ 360 ms, max 751 ms; first committed write after p50 ≈ 380 ms,
+    max 757 ms. 44/45 trials finished within 2× the minimum election
+    timeout (600 ms), 45/45 within 2× the maximum (1,200 ms).
+-   CI now runs from the repository root (`.github/workflows/raft-kv-ci.yml`).
+
+------------------------------------------------------------------------
+
 ## 💥 Real-process chaos
 
 ``` mermaid
@@ -445,13 +474,15 @@ docs/
 
 Not currently claimed:
 
--   dynamic cluster membership
 -   backup/restore tooling
--   power-loss simulation
--   disk-fault injection
--   inter-process network partition chaos
+-   real power-loss testing (disk faults are simulated in tests, see below)
+-   joint consensus (membership uses single-server changes) and leadership transfer
 -   sharding / multiple Raft groups
 -   multi-machine throughput capacity
+-   gRPC: peer and client traffic is gob or JSON over HTTP/1.1 (`net/http`)
+-   C++: the repository is Go only; the optional LSM store is Rust behind a C ABI,
+    and its C-ABI crate (`lsm-capi`) is not in the published `lsm-engine` repo,
+    so `-tags lsm` cannot be built from public sources today
 
 The project is a **serious distributed-systems implementation**, not a
 replacement for etcd/CockroachDB/TiKV.

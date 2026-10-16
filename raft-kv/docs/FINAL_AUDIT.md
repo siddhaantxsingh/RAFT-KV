@@ -1,5 +1,9 @@
 # Final audit: raft-kv (+ the Raft/LSM integration)
 
+> Superseded in part by [AUDIT_2026-10-14.md](AUDIT_2026-10-14.md): membership
+> changes, inter-process partition chaos and disk-fault tests now exist, and the
+> CI workflow mentioned below did not actually exist in the repository.
+
 Scope: from the audit commit (`562a3f0`) to the current HEAD. Original
 findings are in [COMBINED_ARCHITECTURE_AUDIT.md](COMBINED_ARCHITECTURE_AUDIT.md).
 

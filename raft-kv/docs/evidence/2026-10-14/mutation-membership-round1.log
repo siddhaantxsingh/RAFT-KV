@@ -1,0 +1,20 @@
+[M1] advanceCommit counts learners (all matchIndex entries)
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipLearnersDoNotVoteOrCommit (1.72s)']
+[M2] followers ignore config entries on append
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipAddServers (11.63s)', '--- FAIL: TestMembershipRemoveFollowerAndLeader (10.74s)', '--- FAIL: TestMembershipUncommittedConfigReverts (13.31s)', '--- FAIL: TestMembershipPersistsAcrossRestartAndSnapshot (12.43s)']
+[M3] allow a second uncommitted config change
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipOneChangeAtATime (0.64s)']
+[M4] removed leader never steps down
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipRemoveFollowerAndLeader (1.00s)']
+[M5] snapshot saved without configuration
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipPersistsAcrossRestartAndSnapshot (14.15s)']
+[M6] no revert when the config entry is truncated
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipUncommittedConfigReverts (13.55s)']
+[M7] learners campaign
+   tests=Membership -> SURVIVED []
+[M8] InstallSnapshot drops the configuration
+   tests=Membership -> SURVIVED []
+[M9] skip catch-up: promote learner immediately
+   tests=Membership -> KILLED []
+[M10] ReadIndex/vote quorum ignores config: count all members as voters
+   tests=Membership -> KILLED ['--- FAIL: TestMembershipLeaderCrashDuringChange (10.76s)']

@@ -45,11 +45,16 @@ type Storage interface {
 	SetHardState(hs HardState) error
 	Append(entries []LogEntry, sync bool) error
 	Sync() error
-	SaveSnapshot(index, term int, data []byte) error
+	// SaveSnapshot also records conf, the membership configuration in
+	// effect at index (nil only in old tests/callers).
+	SaveSnapshot(index, term int, data []byte, conf *Configuration) error
 	CompactLog(index int, retained []LogEntry) error
 	// Snapshot returns the latest saved snapshot with its metadata. The
 	// returned slice is shared and must not be modified.
 	Snapshot() (index, term int, data []byte)
+	// SnapshotWithConfig is Snapshot plus the configuration saved with it
+	// (nil if none), read atomically.
+	SnapshotWithConfig() (index, term int, data []byte, conf *Configuration)
 	StateSize() int // bytes of log/state (excluding snapshot), for compaction triggers
 }
 
@@ -69,6 +74,7 @@ type MemoryStorage struct {
 	snapIndex int
 	snapTerm  int
 	snapshot  []byte
+	snapConf  *Configuration
 	base      int // index just below log[0]
 	log       []LogEntry
 	size      int
@@ -89,7 +95,7 @@ func (m *MemoryStorage) Copy() *MemoryStorage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return &MemoryStorage{
-		hs: m.hs, snapIndex: m.snapIndex, snapTerm: m.snapTerm, snapshot: m.snapshot,
+		hs: m.hs, snapIndex: m.snapIndex, snapTerm: m.snapTerm, snapshot: m.snapshot, snapConf: m.snapConf,
 		base: m.base, log: append([]LogEntry(nil), m.log...), size: m.size,
 	}
 }
@@ -146,14 +152,22 @@ func (m *MemoryStorage) Append(entries []LogEntry, _ bool) error {
 
 func (m *MemoryStorage) Sync() error { return nil }
 
-func (m *MemoryStorage) SaveSnapshot(index, term int, data []byte) error {
+func (m *MemoryStorage) SaveSnapshot(index, term int, data []byte, conf *Configuration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if index <= m.snapIndex {
 		return nil
 	}
-	m.snapIndex, m.snapTerm, m.snapshot = index, term, clone(data)
+	m.snapIndex, m.snapTerm, m.snapshot, m.snapConf = index, term, clone(data), cloneConf(conf)
 	return nil
+}
+
+func cloneConf(c *Configuration) *Configuration {
+	if c == nil {
+		return nil
+	}
+	cc := c.clone()
+	return &cc
 }
 
 func (m *MemoryStorage) CompactLog(index int, retained []LogEntry) error {
@@ -171,6 +185,12 @@ func (m *MemoryStorage) Snapshot() (int, int, []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.snapIndex, m.snapTerm, m.snapshot
+}
+
+func (m *MemoryStorage) SnapshotWithConfig() (int, int, []byte, *Configuration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.snapIndex, m.snapTerm, m.snapshot, cloneConf(m.snapConf)
 }
 
 func (m *MemoryStorage) StateSize() int {
@@ -211,13 +231,36 @@ type FileStorage struct {
 	mu     sync.Mutex
 	dir    string
 	segs   []segment // oldest first; the last one is open for appends
-	cur    *os.File
+	cur    walFile
+	// open opens WAL segments and temp files (os.OpenFile by default;
+	// tests substitute a fault-injecting implementation).
+	open func(name string, flag int, perm os.FileMode) (walFile, error)
+	// failed is sticky: after a failed WAL write or fsync, the WAL's state
+	// on disk is unknown (a partial record, or dirty pages the kernel may
+	// have dropped while a later fsync reports success), so every later
+	// Append/Sync/CompactLog fails until the process restarts and Load
+	// re-reads what is really on disk.
+	failed error
 	// Latest saved snapshot (data shared, never modified).
 	snapIndex, snapTerm int
 	snapshot            []byte
+	snapConf            *Configuration
 	// testAfterSyncCapture, if set, runs in Sync between reading the WAL
 	// handle and fsyncing it (tests use it to widen race windows).
 	testAfterSyncCapture func()
+}
+
+// walFile is the subset of *os.File FileStorage writes through.
+type walFile interface {
+	Write(p []byte) (int, error)
+	Sync() error
+	Close() error
+	Truncate(size int64) error
+	Seek(offset int64, whence int) (int64, error)
+}
+
+func osOpen(name string, flag int, perm os.FileMode) (walFile, error) {
+	return os.OpenFile(name, flag, perm)
 }
 
 type segment struct {
@@ -231,7 +274,7 @@ func NewFileStorage(dir string) (*FileStorage, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &FileStorage{dir: dir}, nil
+	return &FileStorage{dir: dir, open: osOpen}, nil
 }
 
 func (f *FileStorage) path(n string) string { return filepath.Join(f.dir, n) }
@@ -247,7 +290,7 @@ func syncDir(dir string) error {
 
 func (f *FileStorage) atomicWrite(name string, data []byte) error {
 	tmp := f.path(name + ".tmp")
-	fh, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	fh, err := f.open(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
@@ -294,6 +337,7 @@ func unframe(name string, b []byte) ([]byte, error) {
 type snapFile struct {
 	Index, Term int
 	Data        []byte
+	Config      *Configuration // absent in files written before membership changes
 }
 
 func encodeRecord(entries []LogEntry) []byte {
@@ -394,7 +438,7 @@ func (f *FileStorage) Load() (HardState, int, int, []LogEntry, error) {
 	} else if !os.IsNotExist(err) {
 		return hs, 0, 0, nil, err
 	}
-	f.snapIndex, f.snapTerm, f.snapshot = sf.Index, sf.Term, sf.Data
+	f.snapIndex, f.snapTerm, f.snapshot, f.snapConf = sf.Index, sf.Term, sf.Data, sf.Config
 
 	names, err := f.listSegments()
 	if err != nil {
@@ -452,7 +496,7 @@ func (f *FileStorage) Load() (HardState, int, int, []LogEntry, error) {
 	// a fresh one. The legacy "wal" file is never appended to.
 	if n := len(f.segs); n > 0 && f.segs[n-1].name != "wal" {
 		last := &f.segs[n-1]
-		fh, err := os.OpenFile(f.path(last.name), os.O_RDWR, 0o644)
+		fh, err := f.open(f.path(last.name), os.O_RDWR, 0o644)
 		if err != nil {
 			return hs, 0, 0, nil, err
 		}
@@ -493,7 +537,7 @@ func (f *FileStorage) newSegmentLocked() error {
 		seq = prev + 1
 	}
 	name := segName(seq)
-	fh, err := os.OpenFile(f.path(name), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644)
+	fh, err := f.open(f.path(name), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
@@ -529,8 +573,15 @@ func (f *FileStorage) Append(entries []LogEntry, sync bool) error {
 	}
 	rec := encodeRecord(entries)
 	f.mu.Lock()
+	if f.failed != nil {
+		f.mu.Unlock()
+		return f.failed
+	}
 	_, err := f.cur.Write(rec)
 	f.segs[len(f.segs)-1].size += int64(len(rec))
+	if err != nil {
+		f.failed = fmt.Errorf("raft wal: earlier write failed: %w", err)
+	}
 	f.mu.Unlock()
 	if err != nil {
 		return err
@@ -549,17 +600,27 @@ func (f *FileStorage) Sync() error {
 	f.mu.Lock()
 	wal := f.cur
 	hook := f.testAfterSyncCapture
+	failed := f.failed
 	f.mu.Unlock()
+	if failed != nil {
+		return failed
+	}
 	if hook != nil {
 		hook()
 	}
-	return wal.Sync()
+	if err := wal.Sync(); err != nil {
+		f.mu.Lock()
+		f.failed = fmt.Errorf("raft wal: earlier fsync failed: %w", err)
+		f.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // SaveSnapshot durably writes the snapshot file. Log entries are not
 // touched, so concurrent appends are unaffected; only snapMu is held
 // during the write.
-func (f *FileStorage) SaveSnapshot(index, term int, data []byte) error {
+func (f *FileStorage) SaveSnapshot(index, term int, data []byte, conf *Configuration) error {
 	f.snapMu.Lock()
 	defer f.snapMu.Unlock()
 	f.mu.Lock()
@@ -569,14 +630,14 @@ func (f *FileStorage) SaveSnapshot(index, term int, data []byte) error {
 		return nil
 	}
 	var b bytes.Buffer
-	if err := gob.NewEncoder(&b).Encode(snapFile{index, term, data}); err != nil {
+	if err := gob.NewEncoder(&b).Encode(snapFile{index, term, data, conf}); err != nil {
 		return err
 	}
 	if err := f.atomicWrite("snapshot", frame(b.Bytes())); err != nil {
 		return err
 	}
 	f.mu.Lock()
-	f.snapIndex, f.snapTerm, f.snapshot = index, term, clone(data)
+	f.snapIndex, f.snapTerm, f.snapshot, f.snapConf = index, term, clone(data), cloneConf(conf)
 	f.mu.Unlock()
 	return nil
 }
@@ -590,6 +651,9 @@ func (f *FileStorage) CompactLog(index int, retained []LogEntry) error {
 	defer f.syncMu.Unlock()
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failed != nil {
+		return f.failed
+	}
 	if index > f.snapIndex {
 		return fmt.Errorf("compact to %d beyond saved snapshot %d", index, f.snapIndex)
 	}
@@ -623,6 +687,12 @@ func (f *FileStorage) Snapshot() (int, int, []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.snapIndex, f.snapTerm, f.snapshot
+}
+
+func (f *FileStorage) SnapshotWithConfig() (int, int, []byte, *Configuration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapIndex, f.snapTerm, f.snapshot, cloneConf(f.snapConf)
 }
 
 func (f *FileStorage) StateSize() int {
