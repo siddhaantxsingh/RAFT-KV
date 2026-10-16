@@ -1,465 +1,188 @@
-<div align="center">
-<h1>Raft KV</h1>
+# Raft KV
 
-<h3>A fault-tolerant, linearizable distributed key-value store built from scratch in Go.</h3>
+A Raft-replicated, linearizable key-value store in Go, with membership changes, chaos testing on real processes, and a custom linearizability checker.
 
-<p>
-<img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white">
-<img src="https://img.shields.io/badge/Raft-Consensus-FF8C00?style=for-the-badge">
-<img src="https://img.shields.io/badge/Linearizability-Verified%20by%20History-2E8B57?style=for-the-badge">
-<img src="https://img.shields.io/badge/WAL-%2B%20Snapshots-6A5ACD?style=for-the-badge">
-<img src="https://img.shields.io/badge/mTLS%20%2B%20Auth-Hardened-1E90FF?style=for-the-badge">
-</p>
-**Consensus · durable state · linearizable reads · exactly-once retries
-· snapshots · chaos testing**
-</div>
+[![raft-kv CI](https://github.com/siddhaantxsingh/RAFT-KV/actions/workflows/raft-kv-ci.yml/badge.svg?branch=ccr-a6e6c567-y4w7k8)](https://github.com/siddhaantxsingh/RAFT-KV/actions/workflows/raft-kv-ci.yml?query=branch%3Accr-a6e6c567-y4w7k8)
+![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](raft-kv/LICENSE)
 
-------------------------------------------------------------------------
+Consensus, the write-ahead log, snapshots, linearizable reads, exactly-once retries and the test harness are written from scratch. No Raft library is used.
 
-## ✦ What is Raft KV?
+## Highlights
 
-Raft KV is a distributed key-value store whose core consensus,
-persistence, correctness testing, and failure handling are implemented
-from scratch in Go.
+- **Raft with pre-vote, fast log backup and chunked snapshots.** 71 test functions pass under `go test -race`, with an invariant monitor checking election safety, log matching and the commit rule ([test log](raft-kv/docs/evidence/2026-10-14/test-race-final.log)).
+- **Linearizable reads and writes.** Reads use ReadIndex; retries use bounded client sessions for exactly-once writes. Every chaos run is checked by the in-repo linearizability checker ([`lincheck/`](raft-kv/lincheck)).
+- **Fault injection on real processes.** 7/7 recorded `kvchaos` runs on 3 and 5 `kvserver` processes (SIGKILL, SIGSTOP, majority/minority, one-way and bridge partitions, packet loss, member replacement; 30–63 s, 12k–28k operations each) were linearizable and converged ([evidence](raft-kv/docs/evidence/2026-10-14/)).
+- **Single-server membership changes.** Learners catch up before promotion; config changes are tested under partitions and leader crashes. 9 of 10 membership mutants were killed by the tests; the 10th is equivalent ([ADR 0006](raft-kv/docs/adr/0006-single-server-membership-changes.md)).
+- **5-node leader failover.** Over 45 SIGKILL-the-leader trials, the first committed write came back after p50 ≈ 380 ms, max 757 ms; 45/45 within 2x the maximum election timeout (1,200 ms). One shared 4-vCPU machine, localhost network.
+- **Simulated disk faults.** fsync EIO, short writes, and crashes that keep a cut, torn or reordered unsynced WAL tail. Two WAL bugs were found and fixed with failing-first tests ([audit](raft-kv/docs/AUDIT_2026-10-14.md)).
 
-It is designed around a simple contract:
+## Architecture
 
-> **A successful write is replicated through Raft, committed by quorum,
-> applied to the state machine, and survives the failure scenarios the
-> system claims to tolerate.**
-
-The project includes both an in-memory state store and an optional
-**Rust LSM-backed store** through a C ABI.
-
-------------------------------------------------------------------------
-
-## 🧭 System architecture
-
-``` mermaid
+```mermaid
 flowchart LR
-    C["Client / kvctl / HTTP"] --> L["Raft Leader"]
+    CLI["kvctl / HTTP client"] -->|"JSON over HTTP /kv/*"| API
 
-    subgraph R["Raft Cluster"]
-        L --> F1["Follower"]
-        L --> F2["Follower"]
+    subgraph Replica["kvserver (one per node)"]
+        API["kv.Server<br/>sessions, ReadIndex reads"] -->|"Propose / ReadIndex"| RAFT["raft.Node<br/>election, replication,<br/>membership, snapshots"]
+        RAFT -->|"committed entries"| SM["State store<br/>memory (default) or<br/>Rust LSM via C ABI (-tags lsm)"]
+        RAFT --> WAL["FileStorage<br/>CRC'd WAL, hardstate,<br/>snapshots, fsync per commit"]
+        ADMIN["/admin/members"] --> RAFT
+        SEC["secure: TLS / mTLS,<br/>bearer tokens, body limits"] -.-> API
+        OPS["/healthz /readyz<br/>/status /metrics"]
     end
 
-    L --> SM1["State Machine"]
-    F1 --> SM2["State Machine"]
-    F2 --> SM3["State Machine"]
+    RAFT <-->|"gob over HTTP/1.1<br/>AppendEntries, RequestVote,<br/>InstallSnapshot chunks"| PEERS["other replicas"]
 
-    SM1 --> S1["WAL / Snapshot / LSM"]
-    SM2 --> S2["WAL / Snapshot / LSM"]
-    SM3 --> S3["WAL / Snapshot / LSM"]
+    CHAOS["kvchaos<br/>fault proxy per process,<br/>kill / pause / partition / loss"] -.->|"drives + checks history"| CLI
+    CHAOS -.-> LC["lincheck<br/>linearizability checker"]
 ```
 
-### Write path
+Each node runs one `kvserver` process (`cmd/kvserver`). A client request reaches `kv.Server` (`kv/`), which proposes writes to the Raft node (`raft/raft.go`) and serves reads only after a ReadIndex quorum check and after the state machine has applied up to that index. Raft persists its log, hard state and snapshots in `FileStorage` (`raft/storage.go`) with checksums and one fsync per commit (group commit batches concurrent proposals). Committed entries are applied to the state store; with the optional LSM store the Raft log stays the WAL of record and the store writes without fsync ([ADR 0001](raft-kv/docs/adr/0001-raft-log-is-the-wal-of-record.md)). Peers talk gob-encoded HTTP/1.1 (`raft/http_transport.go`), not gRPC. `kvchaos` (`cmd/kvchaos`) starts real processes behind fault-injecting proxies, records every client operation, and feeds the history to `lincheck`.
 
-``` mermaid
-sequenceDiagram
-    participant C as Client
-    participant L as Leader
-    participant F1 as Follower 1
-    participant F2 as Follower 2
-    participant D as Durable State
+## Quick start
 
-    C->>L: PUT / CAS / APPEND
-    L->>F1: AppendEntries
-    L->>F2: AppendEntries
-    F1-->>L: replicated
-    F2-->>L: replicated
-    L->>D: apply committed command
-    L-->>C: success
+Requires Go 1.24+ (use the latest patched release; see [Limitations](#limitations-and-status)).
+
+```bash
+git clone https://github.com/siddhaantxsingh/RAFT-KV.git
+cd RAFT-KV/raft-kv
+
+make build        # bin/kvserver, bin/kvctl, bin/kvchaos
+make test         # go test -race -count=1 ./...
 ```
 
-### Linearizable read path
+Run a local 3-node cluster (ports 7000–7002, data in `./data`) and talk to it:
 
-``` mermaid
-sequenceDiagram
-    participant C as Client
-    participant L as Leader
-    participant Q as Quorum
-    participant S as State Machine
-
-    C->>L: GET
-    L->>Q: ReadIndex confirmation
-    Q-->>L: quorum confirmed
-    L->>S: wait until applied >= read index
-    S-->>L: value
-    L-->>C: linearizable result
-```
-
-The read path avoids simply trusting a leader's local state after a
-possible partition.
-
-------------------------------------------------------------------------
-
-## 🧠 Raft implementation
-
-The consensus layer includes:
-
--   leader election
--   re-election
--   pre-vote
--   log replication
--   fast conflict backup
--   current-term commit handling
--   quorum enforcement
--   stale-leader handling
--   chunked snapshot installation
--   persistent Raft state
--   unreliable transport tests
--   invariant monitoring
-
-The implementation is exercised with both deterministic tests and real
-process failures.
-
-------------------------------------------------------------------------
-
-## 💾 Durability model
-
-``` mermaid
-flowchart TB
-    A["Client command"] --> B["Leader Raft log"]
-    B --> C["Replicate to followers"]
-    C --> D{"Majority replicated"}
-    D -->|No| E["Retry / wait"]
-    D -->|Yes| F["Commit index advances"]
-    F --> G["Apply to state machine"]
-    G --> H["Client response"]
-```
-
-The storage layer protects against:
-
--   torn WAL tails
--   CRC failures
--   mid-WAL corruption
--   crash/restart
--   snapshot corruption
--   snapshot/close races
--   unsafe compaction ordering
-
-A mid-WAL corruption bug that could silently truncate acknowledged
-entries was found and fixed with regression tests.
-
-------------------------------------------------------------------------
-
-## 🔗 Raft + LSM
-
-The optional persistent state path is:
-
-``` mermaid
-flowchart LR
-    A["Client"] --> B["Raft"]
-    B --> C["Committed command"]
-    C --> D["LSM-backed state machine"]
-    D --> E["WAL"]
-    D --> F["MemTable"]
-    F --> G["SSTables"]
-    G --> H["Leveled compaction"]
-```
-
-The integration is intentionally explicit about its trade-off: the Raft
-log is the consensus record, while the LSM is the durable state-machine
-backend.
-
-See [`docs/RAFT_LSM_INTEGRATION.md`](docs/RAFT_LSM_INTEGRATION.md).
-
-------------------------------------------------------------------------
-
-## 📦 KV semantics
-
-  Operation        Semantics
-  ---------------- -----------------------------
-  `GET`            Linearizable read
-  `PUT`            Replace / insert
-  `APPEND`         Append value
-  `DELETE`         Remove key
-  `CAS`            Compare-and-swap
-  Client session   Exactly-once retry behavior
-
-Retry-aware clients can attach bounded session identifiers and sequence
-numbers.
-
-Anonymous requests do not silently receive fabricated session
-identities.
-
-------------------------------------------------------------------------
-
-## 🛡️ Security
-
-The hardened secure transport includes:
-
--   TLS
--   mutual TLS for replica traffic
--   bearer-token authentication
--   certificate validation
--   body limits
--   key/value limits
--   timeout controls
--   corruption rejection
-
-The secure three-replica path is tested end to end.
-
-Security is **opt-in** in the current architecture; ACLs and credential
-rotation are not yet implemented.
-
-------------------------------------------------------------------------
-
-## 🧪 Correctness is part of the system
-
-The project includes a custom **linearizability checker** and an
-invariant monitor.
-
-Test coverage includes:
-
--   elections
--   re-elections
--   quorum loss
--   replication
--   follower rejoin
--   log conflict recovery
--   Figure-8 style stress
--   snapshots
--   crash/restart
--   full-cluster crashes
--   concurrent clients
--   minority-partition reads
--   packet loss / delayed delivery
-
-### Negative testing
-
-The repository intentionally exercises unsafe read behavior and verifies
-that the history checker rejects invalid executions.
-
-The goal is not:
-
-> "the tests passed."
-
-The goal is:
-
-> **the test infrastructure can detect a class of correctness violation
-> when the implementation is made unsafe.**
-
-------------------------------------------------------------------------
-
-## 💥 Real-process chaos
-
-``` mermaid
-stateDiagram-v2
-    [*] --> Healthy
-    Healthy --> Partitioned: inject fault
-    Partitioned --> Healthy: heal
-    Healthy --> LeaderKilled: SIGKILL leader
-    LeaderKilled --> Recovered: restart
-    Recovered --> Healthy
-    Healthy --> Snapshotting: snapshot threshold
-    Snapshotting --> Healthy
-```
-
-Recorded real-process chaos:
-
--   memory-backed state: **3 runs**
--   30--41 seconds per run
--   6--9 SIGKILLs per run
--   linearizable histories
--   replicas converged
-
-LSM-backed run:
-
--   **1 run**
--   \~41 seconds
--   **10 SIGKILLs**
--   linearizable
--   converged
-
-Chaos throughput completed approximately **56k--77k operations per
-run**. This is reported as a robustness result, not a throughput
-benchmark.
-
-------------------------------------------------------------------------
-
-## 📈 Performance
-
-All current benchmark numbers below come from same-VM interleaved runs
-on a **3-replica, 2-vCPU machine** with 32 closed-loop clients and real
-fsync per commit.
-
-### Memory state store
-
-  Read ratio             Throughput             p99
-  ------------ -------------------- ---------------
-  90% reads      5,026--5,562 ops/s   14.0--15.3 ms
-  50% reads      3,763--4,034 ops/s   18.6--19.6 ms
-
-### LSM-backed state store
-
-  Read ratio             Throughput             p99
-  ------------ -------------------- ---------------
-  90% reads      4,974--5,328 ops/s   14.5--17.2 ms
-  50% reads      3,352--3,434 ops/s   22.5--24.3 ms
-
-The LSM path costs throughput because each state-machine operation
-crosses the Go/C boundary and executes an LSM write batch.
-
-Historical optimization experiments also demonstrated major relative
-improvements from WAL/group commit and batched `ReadIndex`; those older
-figures are preserved as development-history results rather than
-presented as current-machine capacity.
-
-------------------------------------------------------------------------
-
-## 🔍 Observability
-
-The server exposes:
-
-``` text
-/healthz
-/readyz
-/status
-/metrics
-```
-
-Metrics include request and Raft-related measurements with histograms.
-
-Structured logs and request/session metadata are used to make failures
-diagnosable.
-
-------------------------------------------------------------------------
-
-## 🚀 Quick start
-
-### Build
-
-``` bash
-make build
-```
-
-### Test
-
-``` bash
-go test -race ./...
-```
-
-### LSM integration tests
-
-``` bash
-go test -tags lsm -race ./kv/lsmstore ./cmd/...
-```
-
-### Local cluster
-
-``` bash
+```bash
 make cluster
-```
-
-### CLI
-
-``` bash
 ./bin/kvctl put hello world
 ./bin/kvctl get hello
 ./bin/kvctl cas hello world raft
+./bin/kvctl members list
+make bench        # 32 clients, 10 s, 90 % reads
+make clean        # stop the cluster and remove bin/ and data/
 ```
 
-### Chaos
+Run the same chaos tests as CI:
 
-``` bash
-make chaos
+```bash
+./bin/kvchaos -nodes 3 -duration 20s -seed 1 -faults kill,pause
+./bin/kvchaos -nodes 5 -duration 30s -seed 2 -base-port 7300 \
+  -faults kill,partition,oneway,bridge,loss,membership
+./bin/kvchaos -nodes 5 -failover-trials 15   # leader-kill recovery timing
 ```
 
-### Docker
+Docker (single node smoke test, as in CI):
 
-``` bash
-docker compose up -d
+```bash
+docker build -t raftkv .
+docker run -d -p 17000:7000 raftkv -id 0 -peers http://127.0.0.1:7000
+curl -X PUT --data world http://127.0.0.1:17000/kv/hello
+curl http://127.0.0.1:17000/kv/hello
 ```
 
-------------------------------------------------------------------------
+## Results
 
-## 📁 Repository map
+### Fault injection (audit 2026-10-14, shared 4-vCPU container)
 
-``` text
-raft/
-├── raft.go
-├── storage.go
-├── network.go
-├── http_transport.go
-└── tests
+| Run | Processes | Faults | Duration | Ops | Result |
+|---|---:|---|---:|---:|---|
+| `chaos-baseline-faults-3node-seed7` | 3 | kill, pause | 31 s | 16,826 | linearizable, converged |
+| `chaos-membership-3node-seed5` | 3 | membership, partition, kill | 61 s | 28,037 | linearizable, converged |
+| `chaos-net-5node-seed1` | 5 | partition, one-way, bridge, loss | 60 s | 12,007 | linearizable, converged |
+| `chaos-net-5node-seed2` | 5 | partition, one-way, bridge, loss | 63 s | 26,443 | linearizable, converged |
+| `chaos-all-5node-seed3` | 5 | all of the above + membership | 62 s | 24,639 | linearizable, converged |
+| `chaos-all-5node-seed4` | 5 | all of the above + membership | 60 s | 27,398 | linearizable, converged |
 
-kv/
-├── server.go
-├── client.go
-├── store.go
-├── session tests
-└── lsmstore/
+JSON summaries and logs: [`docs/evidence/2026-10-14/`](raft-kv/docs/evidence/2026-10-14/). The baseline 3-process run (`baseline-chaos-seed1`, 17,915 ops) is the 7th passing run.
 
-lincheck/
-└── linearizability checker
+### 5-node failover (45 trials, election timeout 300–600 ms)
 
-secure/
-├── TLS / mTLS
-├── auth
-├── limits
-└── secure tests
+| Metric | p50 | Max |
+|---|---:|---:|
+| New leader elected | ≈ 360 ms | 751 ms |
+| First committed write | ≈ 380 ms | 757 ms |
 
-cmd/
-├── kvserver
-├── kvctl
-└── kvchaos
+44/45 trials under 600 ms (2x min timeout), 45/45 under 1,200 ms (2x max). Single machine under load average 12–25; not a multi-machine number. Evidence: `failover-5node-run{1,2,3}.json`.
 
-docs/
-├── correctness
-├── performance
-├── security
-├── integration
-├── results
-└── ADRs
+### Throughput (3 replicas + load generator on one 2-vCPU VM)
+
+32 closed-loop clients, 1,000 keys, 64-byte values, real fsync per commit, 3 runs each:
+
+| Read ratio | Memory store | LSM store (`-store lsm`) |
+|---|---|---|
+| 90 % | 5,438–5,608 ops/s, p99 14.0–15.3 ms | 4,974–5,328 ops/s, p99 14.5–17.2 ms |
+| 50 % | 3,848–4,040 ops/s, p99 18.6–19.6 ms | 3,352–3,434 ops/s, p99 22.5–24.3 ms |
+
+These numbers are from a localhost VM and are not comparable across machines: the same commands on the shared 4-vCPU audit container at load average 22–31 gave 2,639–3,284 ops/s (90 % reads) and 2,065–2,466 ops/s (50 % reads). Full method and raw outputs: [PERFORMANCE.md](raft-kv/docs/PERFORMANCE.md), [`docs/results/bench/`](raft-kv/docs/results/bench/).
+
+## How correctness is verified
+
+| Layer | What runs | Where |
+|---|---|---|
+| Raft safety | Election, replication, Figure-8 style stress, unreliable network, crash/restart, with an invariant monitor | [`raft/raft_test.go`](raft-kv/raft/raft_test.go) |
+| Linearizability | Wing & Gong search with Lowe's memoisation, partitioned per key; a negative test makes reads unsafe and checks the checker rejects the history | [`lincheck/`](raft-kv/lincheck), `TestCheckerCatchesStaleReads` |
+| Storage | Torn tail, CRC failures, mid-WAL corruption, snapshot/close races | [`raft/storage_test.go`](raft-kv/raft/storage_test.go), [`raft/snapshot_test.go`](raft-kv/raft/snapshot_test.go) |
+| Disk faults | fsync EIO, short write, 100 simulated crashes with torn/cut/reordered tails | [`raft/diskfault_test.go`](raft-kv/raft/diskfault_test.go) |
+| Membership | 9 tests incl. churn under partitions and leader crash mid-change; mutation testing (9/10 killed) | [`raft/membership_test.go`](raft-kv/raft/membership_test.go) |
+| Security | 3-replica mTLS + token cluster end to end; oversized values rejected, not truncated | [`secure/secure_test.go`](raft-kv/secure/secure_test.go) |
+| Process chaos | `kvchaos` runs above | [`cmd/kvchaos/`](raft-kv/cmd/kvchaos) |
+| CI | gofmt, vet, staticcheck, govulncheck, race tests, two chaos runs, Docker smoke test | [`raft-kv-ci.yml`](.github/workflows/raft-kv-ci.yml) |
+
+More detail: [RAFT_CORRECTNESS.md](raft-kv/docs/RAFT_CORRECTNESS.md), [REQUIREMENTS_MATRIX.md](raft-kv/docs/REQUIREMENTS_MATRIX.md).
+
+## Design decisions
+
+- **The Raft log is the WAL of record.** The LSM store applies each entry as one atomic batch without fsync and replays from the Raft log after a crash, so a write costs one fsync, not two ([ADR 0001](raft-kv/docs/adr/0001-raft-log-is-the-wal-of-record.md)).
+- **Two-phase snapshot save, then compaction.** The snapshot file is saved first; the log is then compacted into a new fsynced WAL segment. The stored log always covers what the snapshot does not, so a crash at any point is safe. Followers receive CRC-checked, resumable chunks ([ADR 0002](raft-kv/docs/adr/0002-chunked-snapshots-and-two-phase-compaction.md)).
+- **Bounded, deterministic sessions.** The session table holds at most 100k sessions with deterministic eviction on every replica; anonymous requests keep no state ([ADR 0003](raft-kv/docs/adr/0003-bounded-deterministic-sessions.md)).
+- **Security is opt-in.** mTLS and separate peer/client bearer tokens are available but off by default to keep the quick start simple ([ADR 0004](raft-kv/docs/adr/0004-transport-security.md), [SECURITY.md](raft-kv/docs/SECURITY.md)).
+- **Single-server membership changes, not joint consensus.** Simpler to get right and enough for replacing one node at a time ([ADR 0006](raft-kv/docs/adr/0006-single-server-membership-changes.md), superseding [ADR 0005](raft-kv/docs/adr/0005-static-membership.md)).
+- **HTTP RPC instead of gRPC.** Peers use gob over `net/http`; clients use JSON. Fewer dependencies, easy to proxy for fault injection.
+
+## Limitations and status
+
+- **Rust LSM store cannot be built from public sources.** `-tags lsm` needs a `lsm-capi` crate that is not in the published `lsm-engine` repo, so LSM throughput numbers above are not reproducible today (BLOCKED, see [OWNER_ACTIONS.md](raft-kv/docs/OWNER_ACTIONS.md)).
+- **The process-level negative control did not fire.** A deliberately broken server (`-unsafe-stale-reads-for-testing`) was not caught in a 40 s partition run; the in-process negative test still catches it.
+- **Simulated disk faults only.** No real failing hardware or power-loss testing. In 1 of 100 simulated crashes, an out-of-order write-back makes the node refuse to start (no acknowledged data lost, manual recovery needed).
+- **Toolchain.** `go.mod` says go1.24.7, which has 37 reachable standard-library vulnerabilities per govulncheck. CI and the Dockerfile use the latest stable Go; build locally with a patched toolchain.
+- **Not implemented:** joint consensus, leadership transfer, backup/restore, sharding, multi-machine benchmarks. `kvchaos` does not clean up child processes if it is itself killed.
+- **Not production ready.** Auth is off by default and all evidence comes from one machine.
+
+## Repository layout
+
+```text
+.github/workflows/raft-kv-ci.yml   CI (runs from the repo root, works in raft-kv/)
+raft-kv/
+├── raft/        consensus, membership, FileStorage (WAL), HTTP transport, tests
+├── kv/          state machine, sessions, ReadIndex reads, client, HTTP API
+│   └── lsmstore/  optional Rust LSM store via C ABI (-tags lsm)
+├── lincheck/    linearizability checker
+├── secure/      TLS / mTLS, bearer tokens, request limits
+├── cmd/
+│   ├── kvserver/  replica binary, admin API, metrics
+│   ├── kvctl/     CLI and load generator
+│   └── kvchaos/   process chaos, network fault proxy, failover timing
+├── scripts/     local cluster and chaos helpers
+└── docs/        design docs, ADRs, results, evidence
 ```
 
-------------------------------------------------------------------------
+## Documentation
 
-## 📚 Documentation
+| Topic | Link |
+|---|---|
+| Design notes (why it is built this way) | [DESIGN.md](raft-kv/DESIGN.md) |
+| Raft correctness | [RAFT_CORRECTNESS.md](raft-kv/docs/RAFT_CORRECTNESS.md) |
+| Distributed storage | [DISTRIBUTED_STORAGE.md](raft-kv/docs/DISTRIBUTED_STORAGE.md) |
+| Raft + LSM integration | [RAFT_LSM_INTEGRATION.md](raft-kv/docs/RAFT_LSM_INTEGRATION.md) |
+| Performance | [PERFORMANCE.md](raft-kv/docs/PERFORMANCE.md), [BASELINE.md](raft-kv/docs/BASELINE.md) |
+| Security | [SECURITY.md](raft-kv/docs/SECURITY.md) |
+| Requirements matrix | [REQUIREMENTS_MATRIX.md](raft-kv/docs/REQUIREMENTS_MATRIX.md) |
+| Audit and scorecard (2026-10-14) | [AUDIT_2026-10-14.md](raft-kv/docs/AUDIT_2026-10-14.md) |
+| Owner actions | [OWNER_ACTIONS.md](raft-kv/docs/OWNER_ACTIONS.md) |
+| ADRs | [`docs/adr/`](raft-kv/docs/adr/) |
 
-  ----------------------------------------------------------------------------------------------------
-  Topic                               Link
-  ----------------------------------- ----------------------------------------------------------------
-  Distributed storage                 [`docs/DISTRIBUTED_STORAGE.md`](docs/DISTRIBUTED_STORAGE.md)
+---
 
-  Raft correctness                    [`docs/RAFT_CORRECTNESS.md`](docs/RAFT_CORRECTNESS.md)
-
-  Raft + LSM                          [`docs/RAFT_LSM_INTEGRATION.md`](docs/RAFT_LSM_INTEGRATION.md)
-
-  Performance                         [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
-
-  Security                            [`docs/SECURITY.md`](docs/SECURITY.md)
-
-  Interview guide                     [`docs/INTERVIEW.md`](docs/INTERVIEW.md)
-
-  Final audit                         [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md)
-
-  ADRs                                [`docs/adr/`](docs/adr/)
-  ----------------------------------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-## 🚧 Honest limitations
-
-Not currently claimed:
-
--   dynamic cluster membership
--   backup/restore tooling
--   power-loss simulation
--   disk-fault injection
--   inter-process network partition chaos
--   sharding / multiple Raft groups
--   multi-machine throughput capacity
-
-The project is a **serious distributed-systems implementation**, not a
-replacement for etcd/CockroachDB/TiKV.
-
-------------------------------------------------------------------------
-
-<div align="center">
-### The interesting part of Raft is not electing a leader.
-
-### It is preserving the system's contract when the world stops cooperating.
-</div>
+Built by [Siddhant Singh](https://github.com/siddhaantxsingh). Licensed under the [MIT License](raft-kv/LICENSE).

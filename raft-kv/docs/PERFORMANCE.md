@@ -48,7 +48,7 @@ failover stalls, so it is a robustness number, not a throughput claim.
 
 ## Historical figures
 
-The README's "performance journey" table (WAL + group commit 10.3×,
+The "performance journey" table in [DESIGN.md](../DESIGN.md#performance-journey) (WAL + group commit 10.3×,
 batched ReadIndex 2.2×) was measured during the original development on
 the earlier VM state. Those were relative improvements within one session
 and were not re-measured here.
