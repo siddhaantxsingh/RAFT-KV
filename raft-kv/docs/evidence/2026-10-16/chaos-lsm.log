@@ -1,0 +1,48 @@
+cd /home/user/lsm_engine/capi && cargo build --release
+    Finished `release` profile [optimized] target(s) in 0.02s
+CGO_LDFLAGS="-L/home/user/lsm_engine/capi/target/release" go build -tags lsm -o bin/ ./cmd/...
+./bin/kvchaos -store lsm -duration ${DURATION:-30s}
+chaos: pausing replica 1 for 1.843s
+chaos: SIGKILL replica 1 (leader-targeted=false)
+chaos: SIGKILL replica 1 (leader-targeted=false)
+chaos: pausing replica 0 for 2.414s
+chaos: SIGKILL replica 2 (leader-targeted=true)
+chaos: pausing replica 0 for 2.079s
+chaos: pausing replica 2 for 1.222s
+chaos: SIGKILL replica 1 (leader-targeted=true)
+chaos: pausing replica 2 for 608ms
+chaos: SIGKILL replica 0 (leader-targeted=true)
+{
+  "store": "lsm",
+  "nodes": 3,
+  "faults": "kill,pause",
+  "seed": 1792156560793959636,
+  "duration_s": 31.995883448,
+  "ops": 38593,
+  "ok": 38593,
+  "unknown_outcome": 0,
+  "sigkills": 5,
+  "leader_sigkills": 3,
+  "pauses": 5,
+  "partitions": 0,
+  "oneway_partitions": 0,
+  "bridge_partitions": 0,
+  "loss_periods": 0,
+  "membership_replacements": 0,
+  "membership_change_failures": 0,
+  "dropped_peer_rpcs": 0,
+  "final_members": [
+    0,
+    1,
+    2
+  ],
+  "linearizable": true,
+  "replicas_converged": true,
+  "final_commit_index": [
+    23272,
+    23272,
+    23272
+  ],
+  "checker_s": 0.114285538
+}
+CHAOS PASS

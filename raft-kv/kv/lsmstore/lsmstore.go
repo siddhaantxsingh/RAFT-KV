@@ -3,8 +3,8 @@
 // Package lsmstore is a kv.StateStore backed by lsm-engine through its C
 // ABI (cgo). Build with -tags lsm and point the linker at the engine:
 //
-//	(cd ../lsm-engine && cargo build --release -p lsm-capi)
-//	CGO_LDFLAGS="-L../lsm-engine/target/release" go build -tags lsm ./...
+//	(cd $LSM_ENGINE/capi && cargo build --release)   # builds liblsm.a
+//	CGO_LDFLAGS="-L$LSM_ENGINE/capi/target/release" go build -tags lsm ./...
 //
 // Layout inside the LSM (one namespace byte per kind of record):
 //
@@ -22,7 +22,7 @@ package lsmstore
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#cgo LDFLAGS: -l:liblsm_capi.a -ldl -lpthread -lm
+#cgo LDFLAGS: -l:liblsm.a -ldl -lpthread -lm
 #include <stdlib.h>
 #include "lsm.h"
 */
@@ -54,7 +54,7 @@ func cerr(e *C.char) error {
 	if e == nil {
 		return nil
 	}
-	defer C.lsm_free_err(e)
+	defer C.lsm_free_string(e)
 	return errors.New(C.GoString(e))
 }
 
@@ -68,9 +68,10 @@ func ptr(b []byte) *C.uint8_t {
 func open(dir string) (*C.lsm_db, error) {
 	cdir := C.CString(dir)
 	defer C.free(unsafe.Pointer(cdir))
+	var db *C.lsm_db
 	var e *C.char
-	db := C.lsm_open(cdir, 0, &e)
-	if db == nil {
+	// sync = 0: writes are not fsynced; the Raft log is the WAL of record.
+	if C.lsm_open(cdir, 0, &db, &e) != C.LSM_OK {
 		return nil, fmt.Errorf("lsm open %s: %w", dir, cerr(e))
 	}
 	return db, nil
@@ -99,12 +100,12 @@ func (s *Store) get(k []byte) ([]byte, bool, error) {
 	var v *C.uint8_t
 	var vl C.size_t
 	var e *C.char
-	r := C.lsm_get(s.db, ptr(k), C.size_t(len(k)), &v, &vl, &e)
+	r := C.lsm_get(s.db, nil, ptr(k), C.size_t(len(k)), &v, &vl, &e)
 	switch r {
-	case 1:
-		defer C.lsm_free(v, vl)
+	case C.LSM_OK:
+		defer C.lsm_free_buf(v, vl)
 		return C.GoBytes(unsafe.Pointer(v), C.int(vl)), true, nil
-	case 0:
+	case C.LSM_NOT_FOUND:
 		return nil, false, nil
 	default:
 		return nil, false, cerr(e)
@@ -112,21 +113,24 @@ func (s *Store) get(k []byte) ([]byte, bool, error) {
 }
 
 func (s *Store) scan(start, end []byte, f func(k, v []byte)) error {
-	it := C.lsm_scan(s.db, ptr(start), C.size_t(len(start)), ptr(end), C.size_t(len(end)))
-	if it == nil {
-		return errors.New("lsm scan failed")
+	var it *C.lsm_iter
+	var e *C.char
+	if C.lsm_iter_new(s.db, nil, ptr(start), C.size_t(len(start)), ptr(end), C.size_t(len(end)), &it, &e) != C.LSM_OK {
+		return fmt.Errorf("lsm scan: %w", cerr(e))
 	}
 	defer C.lsm_iter_free(it)
 	var k, v *C.uint8_t
 	var kl, vl C.size_t
-	for C.lsm_iter_next(it, &k, &kl, &v, &vl) == 1 {
-		f(C.GoBytes(unsafe.Pointer(k), C.int(kl)), C.GoBytes(unsafe.Pointer(v), C.int(vl)))
+	for {
+		switch r := C.lsm_iter_next(it, &k, &kl, &v, &vl, &e); r {
+		case C.LSM_OK:
+			f(C.GoBytes(unsafe.Pointer(k), C.int(kl)), C.GoBytes(unsafe.Pointer(v), C.int(vl)))
+		case C.LSM_NOT_FOUND:
+			return nil
+		default: // a read error stopped the scan; the result is incomplete
+			return fmt.Errorf("lsm scan: %w", cerr(e))
+		}
 	}
-	var e *C.char
-	if C.lsm_iter_status(it, &e) != 0 {
-		return cerr(e)
-	}
-	return nil
 }
 
 func (s *Store) Get(key string) (string, bool, error) {
@@ -145,7 +149,7 @@ func (b batch) free()        { C.lsm_batch_free(b.b) }
 
 func (s *Store) write(b batch) error {
 	var e *C.char
-	if C.lsm_write(s.db, b.b, 0, &e) != 0 {
+	if C.lsm_write(s.db, b.b, &e) != C.LSM_OK {
 		return cerr(e)
 	}
 	return nil

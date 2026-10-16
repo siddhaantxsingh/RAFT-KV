@@ -27,11 +27,12 @@ clean:
 	./scripts/cluster.sh stop || true
 	rm -rf bin data
 
-# ---- Raft + LSM integration (needs ../lsm-engine and a Rust toolchain)
-LSM_DIR ?= ../lsm-engine
-LSM_LIB := $(LSM_DIR)/target/release
+# ---- Raft + LSM integration (needs a clone of LSM_ENGINE and a Rust toolchain)
+# The C API crate lives in LSM_ENGINE/capi and builds liblsm.a.
+LSM_CAPI ?= ../../LSM_ENGINE/capi
+LSM_LIB := $(LSM_CAPI)/target/release
 lsm-lib:
-	cd $(LSM_DIR) && cargo build --release -p lsm-capi
+	cd $(LSM_CAPI) && cargo build --release
 build-lsm: lsm-lib
 	CGO_LDFLAGS="-L$(abspath $(LSM_LIB))" go build -tags lsm -o bin/ ./cmd/...
 test-lsm: lsm-lib

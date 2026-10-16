@@ -1,12 +1,13 @@
 # Raft + LSM integration
 
 raft-kv can keep its replicated state machine in
-[lsm-engine](https://github.com/siddhaantxsingh/lsm-engine) instead of
+[LSM_ENGINE](https://github.com/siddhaantxsingh/LSM_ENGINE) instead of
 memory. The two projects stay independent: raft-kv builds and runs without
 Rust, and the LSM store is compiled in only with `-tags lsm`.
 
 ```bash
-make build-lsm            # builds ../lsm-engine's liblsm_capi.a, then kvserver with -tags lsm
+# clone https://github.com/siddhaantxsingh/LSM_ENGINE next to this repo, or set LSM_CAPI
+make build-lsm            # builds LSM_ENGINE/capi's liblsm.a, then kvserver with -tags lsm
 STORE=lsm ./scripts/cluster.sh start
 make test-lsm chaos-lsm
 ```
@@ -17,7 +18,7 @@ make test-lsm chaos-lsm
 kvserver ──> kv.Server ──> raft.Raft ──> raft.Storage (FileStorage: WAL segments + snapshot)
                 │
                 └──> kv.StateStore ──> MemStore            (default)
-                                  └──> lsmstore.Store ──cgo──> liblsm_capi ──> lsm-engine
+                                  └──> lsmstore.Store ──cgo──> liblsm.a (capi) ──> lsm-engine
 ```
 
 - Raft knows nothing about the LSM. It delivers committed entries and asks

@@ -162,7 +162,7 @@ Recovery handles:
 -   compaction interactions
 
 The optional LSM-backed state store connects this project to the
-companion [`lsm-engine`](https://github.com/siddhaantxsingh/lsm-engine).
+companion [`LSM_ENGINE`](https://github.com/siddhaantxsingh/LSM_ENGINE).
 
 ------------------------------------------------------------------------
 

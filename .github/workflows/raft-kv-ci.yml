@@ -37,6 +37,25 @@ jobs:
         run: ./bin/kvchaos -nodes 3 -duration 20s -seed 1 -faults kill,pause
       - name: network and membership chaos (5 processes behind fault proxies)
         run: ./bin/kvchaos -nodes 5 -duration 30s -seed 2 -base-port 7300 -faults kill,partition,oneway,bridge,loss,membership
+  lsm:
+    # Raft + LSM integration: builds the LSM_ENGINE C API (liblsm.a) and runs
+    # the cgo-backed store tests and a chaos run on the LSM store.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: siddhaantxsingh/LSM_ENGINE
+          path: LSM_ENGINE
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - name: LSM-backed store tests (race detector)
+        run: make test-lsm LSM_CAPI=$GITHUB_WORKSPACE/LSM_ENGINE/capi
+      - name: chaos on the LSM store (kill/pause)
+        run: make chaos-lsm LSM_CAPI=$GITHUB_WORKSPACE/LSM_ENGINE/capi DURATION=20s
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 15

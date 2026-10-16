@@ -20,7 +20,7 @@ Evidence paths are under `docs/evidence/2026-10-14/` unless stated.
 | 13 | Failover within 2x election timeout | NOT MEASURED | VERIFIED (local) | `failover-5node-run{1,2,3}.*`: 45 trials, max 757 ms to first committed write; 44/45 within 600 ms (2x min timeout), 45/45 within 1,200 ms (2x max) |
 | 14 | Benchmarks | VERIFIED (older VM) | PARTIAL | `bench.log`: 2,065–2,466 ops/s (50 % reads) and 2,639–3,284 ops/s (90 % reads), measured at load average 22–31 on 4 vCPU; not comparable with older numbers |
 | 15 | gRPC transport | NOT IMPLEMENTED | NOT IMPLEMENTED | transport is gob over HTTP/1.1 |
-| 16 | LSM (Rust) state store via C ABI | BLOCKED | BLOCKED | `baseline-lsm.log`: `lsm-capi` crate not published |
+| 16 | LSM (Rust) state store via C ABI | BLOCKED | VERIFIED | `evidence/2026-10-16/test-lsm.log`, `chaos-lsm.log` (linearizable); Go binding ported to the published `LSM_ENGINE/capi` API; CI job `lsm` |
 | 17 | Static analysis | PARTIAL | VERIFIED (CI) | staticcheck PASS after fixes; govulncheck BLOCKED locally (in CI) |
 | 18 | Docker image | NOT RUN | VERIFIED | `docker-build-smoke.log` |
 | 19 | CI that actually runs | NOT IMPLEMENTED | VERIFIED | `.github/workflows/raft-kv-ci.yml`; run 38740044982 green (fmt, vet, staticcheck, govulncheck on latest Go, race tests, both chaos runs, docker smoke) |

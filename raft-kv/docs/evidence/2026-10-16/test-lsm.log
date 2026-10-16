@@ -1,0 +1,7 @@
+cd /home/user/lsm_engine/capi && cargo build --release
+    Finished `release` profile [optimized] target(s) in 0.02s
+CGO_LDFLAGS="-L/home/user/lsm_engine/capi/target/release" go test -tags lsm -race -count=1 ./kv/lsmstore ./cmd/...
+ok  	github.com/siddhaantxsingh/raft-kv/kv/lsmstore	2.934s
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvchaos	[no test files]
+?   	github.com/siddhaantxsingh/raft-kv/cmd/kvctl	[no test files]
+ok  	github.com/siddhaantxsingh/raft-kv/cmd/kvserver	3.090s

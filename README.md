@@ -143,7 +143,7 @@ More detail: [RAFT_CORRECTNESS.md](raft-kv/docs/RAFT_CORRECTNESS.md), [REQUIREME
 
 ## Limitations and status
 
-- **Rust LSM store cannot be built from public sources.** `-tags lsm` needs a `lsm-capi` crate that is not in the published `lsm-engine` repo, so LSM throughput numbers above are not reproducible today (BLOCKED, see [OWNER_ACTIONS.md](raft-kv/docs/OWNER_ACTIONS.md)).
+- **The Rust LSM store is optional.** `-tags lsm` links against the C API of [LSM_ENGINE](https://github.com/siddhaantxsingh/LSM_ENGINE) (`capi/`, `liblsm.a`). CI builds it and runs the LSM-backed tests and a chaos run on every push (see [RAFT_LSM_INTEGRATION.md](raft-kv/docs/RAFT_LSM_INTEGRATION.md)). The LSM throughput numbers above are from earlier runs on a 2-vCPU VM.
 - **The process-level negative control did not fire.** A deliberately broken server (`-unsafe-stale-reads-for-testing`) was not caught in a 40 s partition run; the in-process negative test still catches it.
 - **Simulated disk faults only.** No real failing hardware or power-loss testing. In 1 of 100 simulated crashes, an out-of-order write-back makes the node refuse to start (no acknowledged data lost, manual recovery needed).
 - **Toolchain.** `go.mod` says go1.24.7, which has 37 reachable standard-library vulnerabilities per govulncheck. CI and the Dockerfile use the latest stable Go; build locally with a patched toolchain.
